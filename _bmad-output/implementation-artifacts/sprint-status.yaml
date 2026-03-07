@@ -1,0 +1,63 @@
+# generated: 2026-02-21
+# project: qiara-ha
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: /Users/antoninbruneau/projects/qiara-ha/_bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-02-21
+project: qiara-ha
+project_key: NOKEY
+tracking_system: file-system
+story_location: "/Users/antoninbruneau/projects/qiara-ha/_bmad-output/implementation-artifacts"
+
+development_status:
+  epic-1: backlog
+  epic-1-retrospective: optional
+  epic-2: in-progress
+  2-1-implement-qiara-sensor-entity-platform: done
+  2-2-retrieve-and-display-qiara-sensor-status: review
+  epic-2-retrospective: optional
+  epic-3: backlog
+  3-1-implement-alarm-control-entity-platform: backlog
+  3-2-arm-qiara-system-in-day-mode: backlog
+  3-3-arm-qiara-system-in-night-mode: backlog
+  3-4-disarm-qiara-system: backlog
+  epic-3-retrospective: optional
+  epic-4: backlog
+  4-1-implement-camera-entity-platform: backlog
+  4-2-stream-live-video-from-qiara-cameras: backlog
+  epic-4-retrospective: optional
+  epic-5: backlog
+  5-1-implement-alarm-trigger-notification-event: backlog
+  5-2-display-persistent-notification-for-alarm-trigger: backlog
+  5-3-send-mobile-app-notification-for-alarm-trigger: backlog
+  epic-5-retrospective: optional

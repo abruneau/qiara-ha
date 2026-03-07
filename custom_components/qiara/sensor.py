@@ -1,0 +1,78 @@
+"""Support for Qiara diagnostic sensors."""
+from __future__ import annotations
+
+import logging
+
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import PERCENTAGE
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import DOMAIN
+from .coordinator import QiaraDataUpdateCoordinator
+from .models import QiaraSensorData
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Qiara diagnostic sensors from a config entry."""
+    coordinator: QiaraDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+
+    entities = []
+    for sensor_id, sensor_data in coordinator.data.items():
+        if sensor_data.battery_level is not None:
+            entities.append(QiaraBatterySensor(coordinator, entry, sensor_id))
+
+    async_add_entities(entities)
+
+
+class QiaraBatterySensor(CoordinatorEntity, SensorEntity):
+    """Representation of a Qiara battery sensor."""
+
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: QiaraDataUpdateCoordinator,
+        entry: ConfigEntry,
+        sensor_id: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._sensor_id = sensor_id
+        self._attr_unique_id = f"{entry.entry_id}_{sensor_id}_battery"
+        
+        sensor_data = coordinator.data[sensor_id]
+        self._attr_name = f"{sensor_data.name} Battery"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, f"{entry.entry_id}_{sensor_id}")},
+            "name": sensor_data.name,
+            "manufacturer": "Qiara",
+            "model": sensor_data.type.capitalize(),
+            "via_device": (DOMAIN, entry.entry_id),
+        }
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the state of the sensor."""
+        sensor_data: QiaraSensorData = self.coordinator.data.get(self._sensor_id)
+        if not sensor_data:
+            return None
+        return sensor_data.battery_level
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        sensor_data: QiaraSensorData = self.coordinator.data.get(self._sensor_id)
+        return super().available and sensor_data and sensor_data.available

@@ -1,0 +1,10 @@
+annotated-types==0.7.0
+openapi_client @ git+https://github.com/abruneau/qiara-python-sdk.git@a8fe8b867a667362a16c17b1ba6e7c6b889a69b3
+pydantic==2.12.5
+pydantic_core==2.41.5
+python-dateutil==2.9.0.post0
+six==1.17.0
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+urllib3==2.6.3
+orjson >= 3.10,<4

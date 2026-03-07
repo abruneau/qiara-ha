@@ -1,0 +1,1 @@
+class HomeAssistant: pass

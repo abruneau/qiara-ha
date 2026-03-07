@@ -1,0 +1,22 @@
+{
+  "domain": "qiara",
+  "name": "Qiara Security System",
+  "version": "0.1.0",
+  "config_flow": true,
+  "documentation": "https://github.com/abruneau/qiara-home-assistant-plugin",
+  "issue_tracker": "https://github.com/abruneau/qiara-home-assistant-plugin/issues",
+  "requirements": [
+    "pydantic>=2.0.0",
+    "aiohttp>=3.8.0",
+    "openapi_client @ git+https://github.com/abruneau/qiara-python-sdk.git@a8fe8b867a667362a16c17b1ba6e7c6b889a69b3"
+  ],
+  "dependencies": [],
+  "codeowners": ["@abruneau"],
+  "iot_class": "cloud_polling",
+  "platforms": [
+    "sensor",
+    "binary_sensor",
+    "alarm_control_panel",
+    "camera"
+  ]
+}
