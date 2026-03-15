@@ -12,18 +12,33 @@ from ..models import QiaraSensorList, QiaraSensorData
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _map_node(node: dict[str, Any]) -> dict[str, Any]:
+    """Map SDK Node dict fields to QiaraSensorData-compatible fields."""
+    node_id = str(node.get("id", ""))
+    type_name = node.get("type_name", "unknown")
+    return {
+        "id": node_id,
+        "name": f"Qiara {type_name.capitalize()} {node_id}",
+        "type": type_name,
+        "state": "unknown",
+        "available": not bool(node.get("discarded", 0)),
+    }
+
+
 class QiaraApi:
     """Qiara API class for managing sensor data."""
 
-    def __init__(self, session: ClientSession, api_key: str, base_url: str = "https://api.qiara.com") -> None:
+    def __init__(self, session: ClientSession, customer_id: int, secret_key: str, base_url: str = "https://api.qiara.co/api/v1") -> None:
         """Initialize the Qiara API."""
-        self._client = QiaraApiClient(session, api_key, base_url)
+        self._client = QiaraApiClient(session, customer_id, secret_key, base_url)
 
     async def async_get_sensors(self) -> list[QiaraSensorData]:
         """Get all sensors from Qiara API with Pydantic validation."""
         try:
             sensors_raw = await self._client.async_get_sensors()
-            return QiaraSensorList(sensors=sensors_raw).sensors
+            mapped = [_map_node(n) for n in sensors_raw]
+            return QiaraSensorList(sensors=mapped).sensors
         except ConfigEntryAuthFailed:
             raise
         except Exception as ex:

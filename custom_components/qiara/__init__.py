@@ -9,7 +9,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import DOMAIN
+from .const import DEFAULT_BASE_URL, DOMAIN
 from .coordinator import QiaraDataUpdateCoordinator
 from .api import QiaraApi
 
@@ -21,6 +21,20 @@ PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
 ]
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate old config entry formats."""
+    _LOGGER.debug("Migrating Qiara config entry from version %s", entry.version)
+
+    if "api_key" in entry.data:
+        _LOGGER.error(
+            "Qiara config entry uses the old 'api_key' format which is no longer supported. "
+            "Please remove and re-add the Qiara integration to supply your Customer ID and Secret Key."
+        )
+        return False
+
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Qiara from a config entry."""
     # Store the API instance in hass.data
@@ -29,8 +43,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Create the API instance
     api = QiaraApi(
         hass.helpers.aiohttp_client.async_get_clientsession(),
-        entry.data["api_key"],
-        entry.data.get("base_url", "https://api.qiara.com")
+        int(entry.data["customer_id"]),
+        entry.data["secret_key"],
+        entry.data.get("base_url", DEFAULT_BASE_URL),
     )
 
     # Create the coordinator

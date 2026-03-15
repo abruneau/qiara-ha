@@ -4,8 +4,10 @@ DOMAIN = "qiara"
 COORDINATOR = "coordinator"
 
 # Configuration
-CONF_API_KEY = "api_key"
+CONF_CUSTOMER_ID = "customer_id"
+CONF_SECRET_KEY = "secret_key"
 CONF_BASE_URL = "base_url"
+DEFAULT_BASE_URL = "https://api.qiara.co/api/v1"
 
 # Sensor types
 SENSOR_TYPE_DOOR = "door"

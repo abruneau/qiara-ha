@@ -72,22 +72,32 @@ So that I can monitor the security of my home at a glance.
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-sonnet-4-6
 
 ### Debug Log References
 
 ### Completion Notes List
 - Integrated `openapi_client` SDK (Qiara Python SDK).
 - Implemented `QiaraAsyncApiClient` and `AsyncRESTResponse` to adapt the synchronous SDK for asynchronous use with Home Assistant's `aiohttp` client.
-- Updated `QiaraApiClient` to use SDK serialization and deserialization.
-- Added `extra_state_attributes` to `QiaraBinarySensor` for battery level and last triggered time.
-- Adjusted `update_interval` in `QiaraDataUpdateCoordinator` to 15 seconds.
-- Created comprehensive unit tests for `sensor` and `binary_sensor` platforms with Home Assistant mocks.
-- Verified that all 10 unit tests pass (including existing and new tests).
+- Implemented full challenge/response HMAC-SHA1 authentication flow (`_authenticate`, `_ensure_session`) with automatic session refresh on 401.
+- Fixed `async_arm_system` / `async_disarm_system` to use `x-hlcore-session-id` header instead of Bearer token.
+- Added `_map_node()` mapper in `api/__init__.py` to correctly translate SDK Node fields (`id`, `type_name`, `discarded`) to `QiaraSensorData` fields.
+- Made `QiaraSensorData.state` optional with default `"unknown"` to handle nodes endpoint not returning live state.
+- Updated `QiaraApiClient` constructor to accept `customer_id: int` and `secret_key: str` (replacing `api_key`).
+- Updated `__init__.py` and `const.py` to use `CONF_CUSTOMER_ID` / `CONF_SECRET_KEY`.
+- Fixed `iot_class` in `manifest.json` to `local_polling` (device is on local network).
+- Moved `import asyncio` to module level in `client.py`.
+- Fixed availability tests to properly assert both coordinator-level and sensor-level availability.
+- Added `test_authenticate` test covering the full challenge/response flow.
+- All 11 unit tests pass.
 
 ### File List
 - `custom_components/qiara/manifest.json`
 - `custom_components/qiara/api/client.py`
+- `custom_components/qiara/api/__init__.py`
+- `custom_components/qiara/models.py`
+- `custom_components/qiara/const.py`
+- `custom_components/qiara/__init__.py`
 - `custom_components/qiara/binary_sensor.py`
 - `custom_components/qiara/coordinator.py`
 - `tests/custom_components/qiara/test_binary_sensor.py`
@@ -97,5 +107,6 @@ So that I can monitor the security of my home at a glance.
 
 ## Change Log
 - 2026-02-21: Integrated Qiara Python SDK, added binary sensor attributes, and unit tests. Status set to review.
+- 2026-03-13: Code review fixes — implemented auth flow, fixed Node→Pydantic mapping, fixed arm/disarm auth, fixed availability tests, corrected iot_class. Status set to done.
 
-Status: review
+Status: done

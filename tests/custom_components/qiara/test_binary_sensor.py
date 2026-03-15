@@ -66,9 +66,14 @@ def test_binary_sensor_attributes(mock_coordinator, mock_entry):
 
 def test_binary_sensor_available(mock_coordinator, mock_entry):
     """Test binary sensor availability."""
+    mock_coordinator.available = True
     sensor = QiaraBinarySensor(mock_coordinator, mock_entry, "door_1")
-    
+
     assert sensor.available is True
-    
+
     mock_coordinator.data["door_1"].available = False
+    assert sensor.available is False
+
+    mock_coordinator.data["door_1"].available = True
+    mock_coordinator.available = False
     assert sensor.available is False

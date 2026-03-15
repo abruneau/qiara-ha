@@ -44,7 +44,7 @@ development_status:
   epic-1-retrospective: optional
   epic-2: in-progress
   2-1-implement-qiara-sensor-entity-platform: done
-  2-2-retrieve-and-display-qiara-sensor-status: review
+  2-2-retrieve-and-display-qiara-sensor-status: done
   epic-2-retrospective: optional
   epic-3: backlog
   3-1-implement-alarm-control-entity-platform: backlog

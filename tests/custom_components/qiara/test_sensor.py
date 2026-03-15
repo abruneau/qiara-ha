@@ -54,9 +54,14 @@ def test_battery_sensor_native_value(mock_coordinator, mock_entry):
 
 def test_battery_sensor_available(mock_coordinator, mock_entry):
     """Test battery sensor availability."""
+    mock_coordinator.available = True
     sensor = QiaraBatterySensor(mock_coordinator, mock_entry, "sensor_1")
-    
+
     assert sensor.available is True
-    
+
     mock_coordinator.data["sensor_1"].available = False
+    assert sensor.available is False
+
+    mock_coordinator.data["sensor_1"].available = True
+    mock_coordinator.available = False
     assert sensor.available is False

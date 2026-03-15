@@ -1,48 +1,61 @@
 """Client for Qiara API using the openapi_client SDK with async support."""
 from __future__ import annotations
 
+import asyncio
+import base64
+import hashlib
+import hmac
+import json
 import logging
 from typing import Any
 
 from aiohttp import ClientSession
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
-from openapi_client import ApiClient, Configuration, DefaultApi
+from openapi_client import ApiClient, Configuration
 from openapi_client.exceptions import ApiException
-from openapi_client.rest import RESTResponse
+
+from ..const import DEFAULT_BASE_URL
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _generate_hmac_response(challenge: str, key: str) -> str:
+    """Compute HMAC-SHA1 challenge response for Qiara authentication."""
+    key_bytes = base64.b64decode(key)
+    digest = hmac.new(key_bytes, challenge.encode("utf-8"), hashlib.sha1)
+    return digest.hexdigest()
+
+
 class AsyncRESTResponse:
-    """Async version of SDK's RESTResponse."""
-    def __init__(self, status, reason, data, headers):
+    """Minimal wrapper to satisfy SDK's response_deserialize interface."""
+
+    def __init__(self, status: int, reason: str, data: bytes, headers: Any) -> None:
         self.status = status
         self.reason = reason
         self.data = data
         self.headers = headers
-    
-    def read(self):
-        """No-op for async as data is already read."""
+
+    def read(self) -> bytes:
         return self.data
 
+
 class QiaraAsyncApiClient(ApiClient):
-    """Async version of SDK's ApiClient using aiohttp."""
-    
-    def __init__(self, session: ClientSession, configuration=None):
+    """ApiClient subclass that uses HA's aiohttp session for async transport."""
+
+    def __init__(self, session: ClientSession, configuration=None) -> None:
         super().__init__(configuration)
         self.session = session
 
-    async def async_call_api(
+    async def call_api_async(
         self,
-        method,
-        url,
-        header_params=None,
-        body=None,
-        post_params=None,
-        _request_timeout=None
+        method: str,
+        url: str,
+        header_params: dict | None = None,
+        body: Any = None,
+        _request_timeout: Any = None,
     ) -> AsyncRESTResponse:
-        """Asynchronous replacement for call_api with retries."""
-        import asyncio
+        """Async HTTP call with exponential backoff retries for 5xx errors."""
         for attempt in range(3):
             try:
                 async with self.session.request(
@@ -51,112 +64,135 @@ class QiaraAsyncApiClient(ApiClient):
                     headers=header_params,
                     json=body if isinstance(body, dict) else None,
                     data=body if not isinstance(body, dict) else None,
-                    timeout=_request_timeout
+                    timeout=_request_timeout,
                 ) as response:
                     status = response.status
                     reason = response.reason
                     data = await response.read()
                     headers = response.headers
-                    
+
                     if status == 401:
-                        raise ConfigEntryAuthFailed("Invalid API key")
-                    
+                        raise ConfigEntryAuthFailed("Session expired or invalid credentials")
+
                     if status >= 500:
                         if attempt == 2:
                             response.raise_for_status()
-                        wait = 2 ** attempt
-                        _LOGGER.warning("Server error, retrying in %ds: %d", wait, status)
+                        wait = 2**attempt
+                        _LOGGER.warning("Server error %d, retrying in %ds", status, wait)
                         await asyncio.sleep(wait)
                         continue
-                        
+
                     return AsyncRESTResponse(status, reason, data, headers)
+            except ConfigEntryAuthFailed:
+                raise
             except Exception as err:
-                if isinstance(err, ConfigEntryAuthFailed):
-                    raise
                 if attempt == 2:
-                    _LOGGER.error("Error calling Qiara API after 3 attempts: %s", err)
+                    _LOGGER.error("Qiara API call failed after 3 attempts: %s", err)
                     raise ApiException(status=0, reason=str(err)) from err
-                wait = 2 ** attempt
+                wait = 2**attempt
                 _LOGGER.warning("Connection error, retrying in %ds: %s", wait, err)
                 await asyncio.sleep(wait)
-                continue
 
 
 class QiaraApiClient:
-    """Qiara API client wrapping the openapi_client SDK."""
+    """Qiara API client — handles challenge/response auth and SDK calls."""
 
-    def __init__(self, session: ClientSession, api_key: str, base_url: str = "https://api.qiara.com") -> None:
-        """Initialize the client."""
-        self._session = session
-        self._api_key = api_key
-        self._base_url = base_url
-        
-        # Configure SDK
-        self.config = Configuration(
-            host=base_url,
-            # We use SessionAuth for the x-hlcore-session-id header
-            api_key={"SessionAuth": api_key},
+    def __init__(
+        self,
+        session: ClientSession,
+        customer_id: int,
+        secret_key: str,
+        base_url: str = DEFAULT_BASE_URL,
+    ) -> None:
+        self._customer_id = customer_id
+        self._secret_key = secret_key
+        self._base_url = base_url.rstrip("/")
+        self._session_id: str | None = None
+
+        config = Configuration(host=self._base_url)
+        config.verify_ssl = False
+        self._api_client = QiaraAsyncApiClient(session, config)
+
+    async def _authenticate(self) -> None:
+        """Perform challenge/response auth and cache the resulting session ID."""
+        challenge_resp = await self._api_client.call_api_async(
+            "GET", f"{self._base_url}/challenge"
         )
-        self.api_client = QiaraAsyncApiClient(session, self.config)
-        self.default_api = DefaultApi(self.api_client)
+        challenge_str = json.loads(challenge_resp.data)["challenge"]
+        hmac_response = _generate_hmac_response(challenge_str, self._secret_key)
+
+        session_resp = await self._api_client.call_api_async(
+            "POST",
+            f"{self._base_url}/session",
+            header_params={"Content-Type": "application/json"},
+            body={"cust_id": self._customer_id, "challenge_rsp": hmac_response},
+        )
+        self._session_id = json.loads(session_resp.data)["session"]
+        _LOGGER.debug("Qiara: authenticated successfully")
+
+    async def async_validate_credentials(self) -> None:
+        """Validate credentials by performing a full authentication. Raises on failure."""
+        self._session_id = None
+        await self._authenticate()
+
+    async def _ensure_session(self) -> str:
+        """Return a valid session ID, authenticating first if needed."""
+        if not self._session_id:
+            await self._authenticate()
+        return self._session_id
 
     async def async_get_sensors(self) -> list[dict[str, Any]]:
-        """Get all sensors using SDK's get_nodes serialization."""
-        try:
-            # 1. Use SDK's internal serialize method to get request params
-            # get_nodes expects x_hlcore_session_id
-            params = self.default_api._get_nodes_serialize(
-                x_hlcore_session_id=self._api_key,
-                _request_auth=None,
-                _content_type=None,
-                _headers=None,
-                _host_index=0
-            )
-            
-            # 2. Call our async implementation
-            response_data = await self.api_client.async_call_api(*params)
-            
-            # 3. Use SDK's deserialization logic
-            # _get_nodes response_types_map: {'200': "ApiNodesResponse"}
-            response_types_map = {'200': "ApiNodesResponse"}
-            api_response = self.api_client.response_deserialize(
-                response_data=response_data,
-                response_types_map=response_types_map,
-            )
-            
-            # Return raw list of nodes for compatibility with current models
-            return api_response.data.to_dict().get("list", [])
-        except ConfigEntryAuthFailed:
-            raise
-        except Exception as ex:
-            _LOGGER.error("Failed to get sensors: %s", ex)
-            raise
+        """Return all sensor nodes, re-authenticating once on session expiry."""
+        for attempt in range(2):
+            try:
+                session_id = await self._ensure_session()
+                response = await self._api_client.call_api_async(
+                    "GET",
+                    f"{self._base_url}/nodes",
+                    header_params={"x-hlcore-session-id": session_id},
+                )
+                api_response = self._api_client.response_deserialize(
+                    response_data=response,
+                    response_types_map={"200": "ApiNodesResponse"},
+                )
+                return api_response.data.to_dict().get("list", [])
+            except ConfigEntryAuthFailed:
+                if attempt == 0:
+                    _LOGGER.warning("Qiara: session expired, re-authenticating")
+                    self._session_id = None
+                    continue
+                raise
+            except Exception as ex:
+                _LOGGER.error("Failed to get sensors: %s", ex)
+                raise
 
     async def async_get_sensor_data(self, sensor_id: str) -> dict[str, Any]:
-        """Get specific sensor data."""
-        # The SDK doesn't have a direct "get sensor by ID" that returns a single Node,
-        # but get_nodes returns all. For now, we'll just filter from get_sensors.
-        sensors = await self.async_get_sensors()
-        for sensor in sensors:
-            if sensor.get("id") == sensor_id:
+        """Get a single sensor by ID from the full sensor list."""
+        for sensor in await self.async_get_sensors():
+            if str(sensor.get("id")) == sensor_id:
                 return sensor
-        raise Exception(f"Sensor {sensor_id} not found")
+        raise KeyError(f"Sensor {sensor_id} not found")
 
     async def async_arm_system(self, mode: str) -> bool:
-        """Arm the system."""
-        # For now, we'll keep the direct call because the SDK's arming might be different
-        # and we don't want to break functionality yet. 
-        # But we use the async transport.
-        url = f"{self._base_url}/system/arm"
-        headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
-        async with self._session.post(url, headers=headers, json={"mode": mode}) as response:
-            response.raise_for_status()
+        """Arm the security system using session authentication."""
+        session_id = await self._ensure_session()
+        await self._api_client.call_api_async(
+            "POST",
+            f"{self._base_url}/system/arm",
+            header_params={
+                "x-hlcore-session-id": session_id,
+                "Content-Type": "application/json",
+            },
+            body={"mode": mode},
+        )
         return True
 
     async def async_disarm_system(self) -> bool:
-        """Disarm the system."""
-        url = f"{self._base_url}/system/disarm"
-        headers = {"Authorization": f"Bearer {self._api_key}"}
-        async with self._session.post(url, headers=headers) as response:
-            response.raise_for_status()
+        """Disarm the security system using session authentication."""
+        session_id = await self._ensure_session()
+        await self._api_client.call_api_async(
+            "POST",
+            f"{self._base_url}/system/disarm",
+            header_params={"x-hlcore-session-id": session_id},
+        )
         return True
