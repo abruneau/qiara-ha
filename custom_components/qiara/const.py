@@ -19,4 +19,4 @@ SENSOR_TYPE_CO = "co"
 # System modes
 SYSTEM_MODE_DAY = "day"
 SYSTEM_MODE_NIGHT = "night"
-SYSTEM_MODE_DISARMED = "disarmed"
+SYSTEM_MODE_DISARMED = "off"

@@ -74,8 +74,7 @@ class QiaraBinarySensor(CoordinatorEntity, BinarySensorEntity):
         sensor_data: QiaraSensorData = self.coordinator.data.get(self._sensor_id)
         if not sensor_data:
             return None
-        # Assuming 'open', 'detected', 'alarm' are 'on' states
-        return sensor_data.state.lower() in ["open", "detected", "alarm", "on", "true"]
+        return sensor_data.state is not None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

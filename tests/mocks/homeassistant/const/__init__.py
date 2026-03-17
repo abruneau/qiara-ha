@@ -6,3 +6,7 @@ class Platform(str, Enum):
     CAMERA = "camera"
 
 PERCENTAGE = "%"
+
+class UnitOfTemperature:
+    CELSIUS = "°C"
+    FAHRENHEIT = "°F"

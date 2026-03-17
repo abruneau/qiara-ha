@@ -1,0 +1,16 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: qiara-ha-dev
+    volumes:
+      - ./custom_components/qiara:/config/custom_components/qiara
+      - ha-config:/config
+    environment:
+      - TZ=Europe/Paris
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8123:8123"
+
+volumes:
+  ha-config:

@@ -65,6 +65,7 @@ class QiaraAsyncApiClient(ApiClient):
                     json=body if isinstance(body, dict) else None,
                     data=body if not isinstance(body, dict) else None,
                     timeout=_request_timeout,
+                    ssl=self.configuration.verify_ssl,
                 ) as response:
                     status = response.status
                     reason = response.reason
@@ -116,14 +117,14 @@ class QiaraApiClient:
     async def _authenticate(self) -> None:
         """Perform challenge/response auth and cache the resulting session ID."""
         challenge_resp = await self._api_client.call_api_async(
-            "GET", f"{self._base_url}/challenge"
+            "GET", f"{self._base_url}/login/challenge"
         )
         challenge_str = json.loads(challenge_resp.data)["challenge"]
         hmac_response = _generate_hmac_response(challenge_str, self._secret_key)
 
         session_resp = await self._api_client.call_api_async(
             "POST",
-            f"{self._base_url}/session",
+            f"{self._base_url}/login/new",
             header_params={"Content-Type": "application/json"},
             body={"cust_id": self._customer_id, "challenge_rsp": hmac_response},
         )
@@ -147,15 +148,16 @@ class QiaraApiClient:
             try:
                 session_id = await self._ensure_session()
                 response = await self._api_client.call_api_async(
-                    "GET",
-                    f"{self._base_url}/nodes",
-                    header_params={"x-hlcore-session-id": session_id},
+                    "POST",
+                    f"{self._base_url}/home/nodes",
+                    header_params={
+                        "x-hlcore-session-id": session_id,
+                        "Content-Type": "application/json",
+                    },
+                    body={"hash_i": 0},
                 )
-                api_response = self._api_client.response_deserialize(
-                    response_data=response,
-                    response_types_map={"200": "ApiNodesResponse"},
-                )
-                return api_response.data.to_dict().get("list", [])
+                nodes_data = json.loads(response.data)
+                return nodes_data.get("list", [])
             except ConfigEntryAuthFailed:
                 if attempt == 0:
                     _LOGGER.warning("Qiara: session expired, re-authenticating")
@@ -173,26 +175,50 @@ class QiaraApiClient:
                 return sensor
         raise KeyError(f"Sensor {sensor_id} not found")
 
-    async def async_arm_system(self, mode: str) -> bool:
-        """Arm the security system using session authentication."""
+    async def async_read_endpoints(self, items: list[dict]) -> list[dict]:
+        """Read endpoint values for a list of nodes."""
+        for attempt in range(2):
+            try:
+                session_id = await self._ensure_session()
+                response = await self._api_client.call_api_async(
+                    "POST",
+                    f"{self._base_url}/home/endpoints_read",
+                    header_params={
+                        "x-hlcore-session-id": session_id,
+                        "Content-Type": "application/json",
+                    },
+                    body={"list": items},
+                )
+                return json.loads(response.data).get("list", [])
+            except ConfigEntryAuthFailed:
+                if attempt == 0:
+                    _LOGGER.warning("Qiara: session expired, re-authenticating")
+                    self._session_id = None
+                    continue
+                raise
+            except Exception as ex:
+                _LOGGER.error("Failed to read endpoints: %s", ex)
+                raise
+
+    async def async_write_endpoint(self, node_id: int, ep_name: str, value: str) -> None:
+        """Write a single endpoint value to a node."""
         session_id = await self._ensure_session()
         await self._api_client.call_api_async(
             "POST",
-            f"{self._base_url}/system/arm",
+            f"{self._base_url}/home/endpoints_write",
             header_params={
                 "x-hlcore-session-id": session_id,
                 "Content-Type": "application/json",
             },
-            body={"mode": mode},
+            body={"list": [{"node_id": node_id, "eps": [{"ep_name": ep_name, "value": value}]}]},
         )
+
+    async def async_arm_system(self, node_id: int, mode: str) -> bool:
+        """Arm the security system by writing hl_alarm_status on the alarm node."""
+        await self.async_write_endpoint(node_id, "hl_alarm_status", mode)
         return True
 
-    async def async_disarm_system(self) -> bool:
-        """Disarm the security system using session authentication."""
-        session_id = await self._ensure_session()
-        await self._api_client.call_api_async(
-            "POST",
-            f"{self._base_url}/system/disarm",
-            header_params={"x-hlcore-session-id": session_id},
-        )
+    async def async_disarm_system(self, node_id: int) -> bool:
+        """Disarm the security system by writing hl_alarm_status=off on the alarm node."""
+        await self.async_write_endpoint(node_id, "hl_alarm_status", "off")
         return True

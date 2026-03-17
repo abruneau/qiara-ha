@@ -27,7 +27,7 @@ def mock_coordinator():
             id="motion_1",
             name="Living Room Motion",
             type="motion",
-            state="clear",
+            state=None,
             battery_level=100,
             available=True
         )

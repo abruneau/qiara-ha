@@ -1,0 +1,988 @@
+openapi: 3.0.3
+info:
+  title: Qiara Home Security API
+  description: |
+    API for the Qiara home security system, extracted from decompiled Android APK.
+    This API manages authentication, home nodes, video streaming, recording, pairing, and history.
+  version: 1.0.0
+  contact:
+    name: Qiara API Support
+
+servers:
+  - url: https://api.qiara.co/api/v1
+    description: Production server
+
+security:
+  - SessionAuth: []
+
+paths:
+  /login/challenge:
+    get:
+      summary: Get authentication challenge
+      description: Retrieve a challenge string for authentication
+      operationId: getChallenge
+      security: []
+      responses:
+        "200":
+          description: Challenge retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiChallenge"
+
+  /login/new:
+    post:
+      summary: Create new session
+      description: Create a new authenticated session using challenge response
+      operationId: createSession
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiNewSessionBody"
+      responses:
+        "200":
+          description: Session created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiNewSessionResponse"
+
+  /home/revision:
+    get:
+      summary: Get revision update
+      description: Check for system revision updates
+      operationId: getRevisionUpdate
+      responses:
+        "200":
+          description: Revision update information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiRevisionUpdateResponse"
+
+    post:
+      summary: Update revision
+      description: Submit revision update request
+      operationId: updateRevision
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiRevisionBody"
+      responses:
+        "200":
+          description: Revision updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiRevisionResponse"
+
+  /home/nodes:
+    post:
+      summary: Get home nodes
+      description: Retrieve list of all nodes (devices) in the home system
+      operationId: getNodes
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      responses:
+        "200":
+          description: List of nodes retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiNodesResponse"
+
+  /home/delete:
+    post:
+      summary: Delete nodes
+      description: Delete specified nodes from the system
+      operationId: deleteNodes
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiNodesDeleteBody"
+      responses:
+        "200":
+          description: Nodes deleted successfully
+
+  /home/pairing:
+    post:
+      summary: Manage device pairing
+      description: Start, update, or stop device pairing process
+      operationId: manageHomePairing
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/ApiPairingStart"
+                - $ref: "#/components/schemas/ApiPairingUpdate"
+                - $ref: "#/components/schemas/ApiPairingStop"
+      responses:
+        "200":
+          description: Pairing operation successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiPairingResponse"
+
+  /home/endpoints_read:
+    post:
+      summary: Read endpoint values
+      description: Read configuration values from specified endpoints
+      operationId: readEndpoints
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/ApiEndpointReadBody"
+                - $ref: "#/components/schemas/ApiVideoSettingsRead"
+      responses:
+        "200":
+          description: Endpoint values retrieved successfully
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ApiEndpointReadResponse"
+                  - $ref: "#/components/schemas/ApiVideoSettingsResponse"
+
+  /home/endpoints_write:
+    post:
+      summary: Write endpoint values
+      description: Write configuration values to specified endpoints
+      operationId: writeEndpoints
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/ApiEndpointWriteBody"
+                - $ref: "#/components/schemas/ApiVideoSettingsUpdate"
+      responses:
+        "200":
+          description: Endpoint values written successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEndpointWriteResponse"
+
+  /home/history:
+    post:
+      summary: Get event history
+      description: Retrieve event history with pagination
+      operationId: getHistory
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiHistoryBody"
+      responses:
+        "200":
+          description: History retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiHistoryResponse"
+
+  /home/delete_history:
+    post:
+      summary: Delete history items
+      description: Delete specified history items
+      operationId: deleteHistory
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiHistoryDeleteBody"
+      responses:
+        "200":
+          description: History items deleted successfully
+
+  /home/open_stream:
+    post:
+      summary: Open video stream
+      description: Open a live video stream
+      operationId: openVideoStream
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiVideoStreamBody"
+      responses:
+        "200":
+          description: Video stream opened successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiVideoStreamResponse"
+
+  /home/stream/live.jpeg:
+    get:
+      summary: Get live stream snapshot
+      description: Retrieve a JPEG snapshot from the live video stream
+      operationId: getStreamSnapshot
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      responses:
+        "200":
+          description: Snapshot retrieved successfully
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+
+  /home/recording/720p:
+    get:
+      summary: Get video recordings
+      description: Retrieve list of 720p video recordings
+      operationId: getVideoRecordings
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      responses:
+        "200":
+          description: List of video recordings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiVideoClipsResponse"
+
+  /home/remove_records/720p:
+    post:
+      summary: Delete video recordings
+      description: Delete specified 720p video recordings
+      operationId: deleteVideoRecordings
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiVideoClipsDeleteBody"
+      responses:
+        "200":
+          description: Video recordings deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiVideoClipsDeleteResponse"
+
+  /home/recorder_action:
+    post:
+      summary: Control video recorder
+      description: Perform an action on the video recorder (start/stop recording)
+      operationId: controlVideoRecorder
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiVideoRecorderBody"
+      responses:
+        "200":
+          description: Recorder action executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiVideoRecorderResponse"
+
+  /home/fw_update:
+    post:
+      summary: Update firmware
+      description: Initiate firmware update for devices
+      operationId: updateFirmware
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+      responses:
+        "200":
+          description: Firmware update initiated successfully
+
+components:
+  parameters:
+    SessionHeader:
+      name: x-hlcore-session-id
+      in: header
+      required: true
+      description: Session ID obtained from the /login/new endpoint after successful authentication
+      schema:
+        type: string
+        example: "sess_1a2b3c4d5e6f"
+
+  securitySchemes:
+    SessionAuth:
+      type: apiKey
+      in: header
+      name: x-hlcore-session-id
+      description: Session ID obtained from /login/new endpoint
+
+  schemas:
+    ApiChallenge:
+      type: object
+      required:
+        - challenge
+      properties:
+        challenge:
+          type: string
+          description: Random challenge string for authentication
+          example: "a1b2c3d4e5f6"
+
+    ApiNewSessionBody:
+      type: object
+      required:
+        - cust_id
+        - challenge_rsp
+      properties:
+        cust_id:
+          type: integer
+          description: Customer ID
+          example: 12345
+        challenge_rsp:
+          type: string
+          description: Challenge response computed using HMAC-SHA256
+          example: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+
+    ApiNewSessionResponse:
+      type: object
+      required:
+        - session
+      properties:
+        session:
+          type: string
+          description: Session ID for authenticated requests
+          example: "sess_1a2b3c4d5e6f"
+
+    ApiRevisionUpdateResponse:
+      type: object
+      description: Revision update information
+
+    ApiRevisionBody:
+      type: object
+      description: Revision update request body
+
+    ApiRevisionResponse:
+      type: object
+      description: Revision update response
+
+    ApiNodesResponse:
+      type: object
+      required:
+        - hash_i
+        - list
+      properties:
+        hash_i:
+          type: integer
+          format: int64
+          description: Hash value for the node list
+          example: 1234567890
+        list:
+          type: array
+          description: List of nodes (devices) in the system
+          items:
+            $ref: "#/components/schemas/Node"
+
+    Node:
+      type: object
+      required:
+        - discarded
+        - hash_t
+        - id
+        - type_name
+      properties:
+        discarded:
+          type: integer
+          description: Whether the node is discarded (0=active, 1=discarded)
+          example: 0
+        hash_t:
+          type: integer
+          format: int64
+          description: Node hash value
+          example: 9876543210
+        id:
+          type: integer
+          format: int64
+          description: Unique node identifier
+          example: 7
+        type_name:
+          type: string
+          description: |
+            Node type identifier. Known values:
+            - Node.HlAlarm: Central alarm hub (one per system). Controls arm/disarm via hl_alarm_status endpoint.
+            - Node.HlCam: IP camera node.
+            - Node.DomusNode.HlDws: Door/Window sensor (Domus adapter).
+            - Node.DomusNode.HlPir: PIR motion sensor (Domus adapter).
+            - Node.DomusNode.HlSrn: Siren (Domus adapter).
+            - Node.DomusNode.HLKpd: Keypad (Domus adapter).
+          enum:
+            - Node.HlAlarm
+            - Node.HlCam
+            - Node.DomusNode.HlDws
+            - Node.DomusNode.HlPir
+            - Node.DomusNode.HlSrn
+            - Node.DomusNode.HLKpd
+          example: "Node.DomusNode.HlDws"
+        adapter_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            ID of the Domus adapter this node is paired through.
+            Present on DomusNode types (HlDws, HlPir, HlSrn, HLKpd).
+            Absent on top-level nodes (HlAlarm, HlCam).
+          example: 8
+
+    ApiNodesDeleteBody:
+      type: object
+      description: Body for deleting nodes
+
+    ApiPairingStart:
+      type: object
+      required:
+        - node_type
+        - op
+        - adapter_type
+      properties:
+        node_type:
+          type: string
+          description: |
+            Type of node to pair. Maps to device types in the Qiara home security system.
+            - HOMELABCAM: Camera (MainCamera or SlaveCamera)
+            - HOMELABSRN: Siren
+            - HOMELABDWS: Door/Window Sensor
+            - HOMELABPIR: PIR Motion Sensor  
+            - HOMELABKPD: Keypad
+          enum:
+            - HOMELABCAM
+            - HOMELABSRN
+            - HOMELABDWS
+            - HOMELABPIR
+            - HOMELABKPD
+          example: "HOMELABCAM"
+        op:
+          type: string
+          description: |
+            Operation type for pairing process.
+            - start_adapter: Start adapter and begin pairing
+            - stop: Stop pairing process
+            - poll: Poll for pairing status
+            - next: Move to next step in pairing
+          enum:
+            - start_adapter
+            - stop
+            - poll
+            - next
+          default: "start_adapter"
+          example: "start_adapter"
+        adapter_type:
+          type: string
+          description: |
+            Adapter type for the pairing process. Default is Adapter.DomusAdapter which is used
+            for the Qiara/Domus home security system devices.
+          default: "Adapter.DomusAdapter"
+          example: "Adapter.DomusAdapter"
+
+    ApiPairingUpdate:
+      type: object
+      description: Update pairing status
+
+    ApiPairingStop:
+      type: object
+      description: Stop device pairing
+
+    ApiPairingResponse:
+      type: object
+      required:
+        - session
+        - layout_name
+      properties:
+        session:
+          type: integer
+          description: Pairing session ID
+          example: 12345
+        layout_name:
+          type: string
+          description: UI layout name for the paired device
+          example: "camera_layout"
+        actual_node_type:
+          type: string
+          nullable: true
+          description: Actual node type detected during pairing
+          example: "ip_camera"
+        node_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: ID of the newly paired node
+          example: 2001
+
+    ApiEndpointReadBody:
+      type: object
+      required:
+        - list
+      properties:
+        list:
+          type: array
+          description: |
+            List of nodes and endpoint names to read. Pass an empty eps array to return nothing
+            (you must know the endpoint names in advance — see NodeEndpointNames for available
+            endpoints per node type).
+          items:
+            type: object
+            required:
+              - node_id
+              - eps
+            properties:
+              node_id:
+                type: integer
+                format: int64
+                description: ID of the node to read from
+                example: 7
+              eps:
+                type: array
+                description: List of endpoint names to read (see NodeEndpointNames)
+                items:
+                  type: string
+                example: ["state", "battery", "reachable", "room"]
+
+    ApiEndpointReadResponse:
+      type: object
+      required:
+        - list
+      properties:
+        list:
+          type: array
+          items:
+            type: object
+            properties:
+              node_id:
+                type: integer
+                format: int64
+              ep_values:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EndpointValue"
+      example:
+        list:
+          - node_id: 7
+            ep_values:
+              - ep_name: "hl_alarm_status"
+                value: "off"
+          - node_id: 12
+            ep_values:
+              - ep_name: "state"
+                value: null
+              - ep_name: "battery"
+                value: 100
+              - ep_name: "reachable"
+                value: 1
+              - ep_name: "room"
+                value: "Living Room"
+
+    EndpointValue:
+      type: object
+      required:
+        - ep_name
+        - value
+      properties:
+        ep_name:
+          type: string
+          description: Endpoint name
+          example: "state"
+        value:
+          nullable: true
+          description: |
+            Endpoint value. Type varies by endpoint:
+            - string: hl_alarm_status ("off"/"day"/"night"), room, area, opening_type, fingerprint
+            - integer: battery (0-100), reachable (0/1), temperature
+            - null: state when sensor is inactive/closed
+
+    ApiVideoSettingsRead:
+      type: object
+      description: Request body for reading video settings
+
+    ApiVideoSettingsUpdate:
+      type: object
+      description: Request body for updating video settings
+
+    ApiVideoSettingsResponse:
+      type: object
+      description: Response containing video settings
+
+    ApiEndpointWriteBody:
+      type: object
+      required:
+        - list
+      properties:
+        list:
+          type: array
+          description: |
+            List of nodes and endpoint name-value pairs to write.
+            Example — arm system in day mode: node_id=7, ep_name="hl_alarm_status", value="day"
+            Example — disarm: node_id=7, ep_name="hl_alarm_status", value="off"
+          items:
+            type: object
+            required:
+              - node_id
+              - eps
+            properties:
+              node_id:
+                type: integer
+                format: int64
+                description: ID of the node to write to
+                example: 7
+              eps:
+                type: array
+                description: List of endpoint name-value pairs to write
+                items:
+                  $ref: "#/components/schemas/EndpointWrite"
+      example:
+        list:
+          - node_id: 7
+            eps:
+              - ep_name: "hl_alarm_status"
+                value: "day"
+
+    EndpointWrite:
+      type: object
+      required:
+        - ep_name
+        - value
+      properties:
+        ep_name:
+          type: string
+          description: Endpoint name to write
+          example: "hl_alarm_status"
+        value:
+          description: Value to write
+          example: "day"
+
+    ApiEndpointWriteResponse:
+      type: object
+      description: Response confirming endpoint write operation
+
+    NodeEndpointNames:
+      type: object
+      description: |
+        Documents available endpoint names per node type, discovered via live device probe.
+        Use these names in the eps array of endpoints_read / endpoints_write requests.
+      properties:
+        Node.HlAlarm:
+          type: object
+          description: Central alarm hub — read/write hl_alarm_status to arm/disarm the system
+          properties:
+            hl_alarm_status:
+              type: string
+              description: Current arm state of the system
+              enum: ["off", "day", "night"]
+              example: "off"
+            timeout_before_armed:
+              type: integer
+              description: Delay in seconds before system arms after command
+            timeout_before_alert:
+              type: integer
+              description: Delay in seconds before alarm triggers after intrusion detected
+            timeout_alert:
+              type: integer
+              description: Duration in seconds the alarm sounds
+            history_only_when_armed:
+              type: integer
+              description: Whether to record events only when system is armed (0/1)
+        Node.DomusNode.HlDws:
+          type: object
+          description: Door/Window sensor — read-only
+          properties:
+            state:
+              nullable: true
+              description: Sensor state. null=closed, non-null=open/triggered
+            battery:
+              type: integer
+              description: Battery level (0-100)
+            reachable:
+              type: integer
+              description: Device reachability (1=reachable, 0=unreachable)
+            room:
+              type: string
+              description: Human-readable room name assigned in the Qiara app
+            area:
+              type: string
+              description: Area type key (e.g. "room_type_other")
+            opening_type:
+              type: string
+              description: Whether sensor is mounted on a door or window
+            temperature:
+              type: integer
+              description: Ambient temperature reading
+            day_alarm:
+              type: integer
+              description: Whether this sensor triggers the alarm in day mode (0/1)
+            night_alarm:
+              type: integer
+              description: Whether this sensor triggers the alarm in night mode (0/1)
+            day_timed:
+              type: integer
+              description: Whether day alarm uses entry delay (0/1)
+            night_timed:
+              type: integer
+              description: Whether night alarm uses entry delay (0/1)
+        Node.DomusNode.HlPir:
+          type: object
+          description: PIR motion sensor — same endpoints as HlDws minus opening_type
+          properties:
+            state:
+              nullable: true
+              description: Motion state. null=no motion, non-null=motion detected
+            battery:
+              type: integer
+            reachable:
+              type: integer
+            room:
+              type: string
+            area:
+              type: string
+            temperature:
+              type: integer
+            day_alarm:
+              type: integer
+            night_alarm:
+              type: integer
+            day_timed:
+              type: integer
+            night_timed:
+              type: integer
+        Node.DomusNode.HlSrn:
+          type: object
+          description: Siren
+          properties:
+            battery:
+              type: integer
+            reachable:
+              type: integer
+            temperature:
+              type: integer
+            test_duration:
+              type: integer
+            test_power:
+              type: integer
+        Node.DomusNode.HLKpd:
+          type: object
+          description: Keypad
+          properties:
+            battery:
+              type: integer
+            reachable:
+              type: integer
+            temperature:
+              type: integer
+            pwd:
+              type: string
+              description: Keypad PIN code
+        Node.HlCam:
+          type: object
+          description: IP camera
+          properties:
+            stream:
+              type: string
+            video_settings:
+              type: object
+            recorder_status:
+              type: string
+            wifi_ssid:
+              type: string
+            day_alarm:
+              type: integer
+            night_alarm:
+              type: integer
+            air_quality:
+              type: integer
+
+    ApiHistoryBody:
+      type: object
+      required:
+        - count
+        - offset
+      properties:
+        count:
+          type: integer
+          description: Number of history items to retrieve
+          example: 20
+        offset:
+          type: integer
+          description: Offset for pagination
+          example: 0
+        date:
+          type: integer
+          format: int64
+          nullable: true
+          description: Timestamp to filter events after this date
+          example: 1638360000
+
+    ApiHistoryResponse:
+      type: object
+      required:
+        - list
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryItem"
+
+    HistoryItem:
+      type: object
+      required:
+        - id
+        - node_id
+        - value
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique history event ID
+          example: 500123
+        node_id:
+          type: integer
+          format: int64
+          description: ID of the node that triggered the event
+          example: 1001
+        timestamp:
+          type: integer
+          format: int64
+          nullable: true
+          description: Unix timestamp of the event
+          example: 1638360123
+        value:
+          type: string
+          description: Event type/value (e.g., "door_open", "motion_detected")
+          example: "motion_detected"
+        is_trigger:
+          type: boolean
+          nullable: true
+          description: Whether this event triggered another action
+          example: false
+        trigger_source:
+          type: integer
+          format: int64
+          nullable: true
+          description: Node ID that triggered this event (if applicable)
+          example: 1002
+        opening_type:
+          type: string
+          nullable: true
+          description: Type of opening (for door/window sensors)
+          example: "door"
+        room:
+          type: string
+          nullable: true
+          description: Custom room name
+          example: "Living Room"
+        area:
+          type: string
+          nullable: true
+          description: Area key/identifier
+          example: "zone_1"
+        user_name:
+          type: string
+          nullable: true
+          description: Username associated with the event
+          example: "john_doe"
+        kpd_code_label:
+          type: string
+          nullable: true
+          description: Keypad code label (for keypad events)
+          example: "main_code"
+
+    ApiHistoryDeleteBody:
+      type: object
+      description: Request body for deleting history items
+
+    ApiVideoStreamBody:
+      type: object
+      required:
+        - force
+      properties:
+        force:
+          type: boolean
+          description: Force stream opening even if already active
+          example: false
+
+    ApiVideoStreamResponse:
+      type: object
+      description: Video stream information and URL
+
+    ApiVideoClipsResponse:
+      type: object
+      description: List of video recording clips
+
+    ApiVideoClipsDeleteBody:
+      type: object
+      description: Request body for deleting video clips
+
+    ApiVideoClipsDeleteResponse:
+      type: object
+      description: Response confirming video clips deletion
+
+    ApiVideoRecorderBody:
+      type: object
+      description: Request body for recorder actions (start/stop)
+
+    ApiVideoRecorderResponse:
+      type: object
+      description: Response with recorder status
+
+    ApiBridgeError:
+      type: object
+      description: Error response from the API
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: integer
+          description: Error code
+
+tags:
+  - name: Authentication
+    description: Login and session management
+  - name: Nodes
+    description: Device/node management
+  - name: Pairing
+    description: Device pairing operations
+  - name: Endpoints
+    description: Configuration endpoint management
+  - name: History
+    description: Event history
+  - name: Video
+    description: Video streaming and recording
+  - name: Firmware
+    description: Firmware management

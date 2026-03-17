@@ -13,9 +13,10 @@ class QiaraSensorData(BaseModel):
     id: str
     name: str
     type: str
-    state: str = "unknown"
+    state: Optional[str] = None
     location: Optional[str] = None
     battery_level: Optional[int] = None
+    temperature: Optional[float] = None
     last_updated: Optional[datetime] = None
     available: bool = True
 

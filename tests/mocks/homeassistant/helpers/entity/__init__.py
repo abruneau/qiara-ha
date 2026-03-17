@@ -1,6 +1,14 @@
 from enum import Enum
 from typing import Any
 
+
+class DeviceInfo(dict):
+    """Mock DeviceInfo — typed dict wrapper, mirrors homeassistant.helpers.entity.DeviceInfo."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+
 class EntityCategory(str, Enum):
     DIAGNOSTIC = "diagnostic"
     CONFIG = "config"

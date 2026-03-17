@@ -5,7 +5,7 @@ import logging
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
+from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -30,6 +30,8 @@ async def async_setup_entry(
     for sensor_id, sensor_data in coordinator.data.items():
         if sensor_data.battery_level is not None:
             entities.append(QiaraBatterySensor(coordinator, entry, sensor_id))
+        if sensor_data.temperature is not None:
+            entities.append(QiaraTemperatureSensor(coordinator, entry, sensor_id))
 
     async_add_entities(entities)
 
@@ -70,6 +72,49 @@ class QiaraBatterySensor(CoordinatorEntity, SensorEntity):
         if not sensor_data:
             return None
         return sensor_data.battery_level
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        sensor_data: QiaraSensorData = self.coordinator.data.get(self._sensor_id)
+        return super().available and sensor_data and sensor_data.available
+
+
+class QiaraTemperatureSensor(CoordinatorEntity, SensorEntity):
+    """Representation of a Qiara temperature sensor."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    def __init__(
+        self,
+        coordinator: QiaraDataUpdateCoordinator,
+        entry: ConfigEntry,
+        sensor_id: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._sensor_id = sensor_id
+        self._attr_unique_id = f"{entry.entry_id}_{sensor_id}_temperature"
+
+        sensor_data = coordinator.data[sensor_id]
+        self._attr_name = f"{sensor_data.name} Temperature"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, f"{entry.entry_id}_{sensor_id}")},
+            "name": sensor_data.name,
+            "manufacturer": "Qiara",
+            "model": sensor_data.type.capitalize(),
+            "via_device": (DOMAIN, entry.entry_id),
+        }
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the temperature."""
+        sensor_data: QiaraSensorData = self.coordinator.data.get(self._sensor_id)
+        if not sensor_data:
+            return None
+        return sensor_data.temperature
 
     @property
     def available(self) -> bool:

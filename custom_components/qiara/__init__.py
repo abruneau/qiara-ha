@@ -9,6 +9,8 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
 from .const import DEFAULT_BASE_URL, DOMAIN
 from .coordinator import QiaraDataUpdateCoordinator
 from .api import QiaraApi
@@ -19,6 +21,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
+    Platform.ALARM_CONTROL_PANEL,
 ]
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -42,7 +45,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Create the API instance
     api = QiaraApi(
-        hass.helpers.aiohttp_client.async_get_clientsession(),
+        async_get_clientsession(hass),
         int(entry.data["customer_id"]),
         entry.data["secret_key"],
         entry.data.get("base_url", DEFAULT_BASE_URL),
@@ -53,6 +56,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Store coordinator in hass.data
     hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    # Fetch initial data — raises ConfigEntryNotReady on failure so HA retries
+    await coordinator.async_config_entry_first_refresh()
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

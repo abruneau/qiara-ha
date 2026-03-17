@@ -4,6 +4,7 @@ from homeassistant.helpers.entity import Entity
 
 class SensorDeviceClass(str, Enum):
     BATTERY = "battery"
+    TEMPERATURE = "temperature"
 class SensorStateClass(str, Enum):
     MEASUREMENT = "measurement"
 

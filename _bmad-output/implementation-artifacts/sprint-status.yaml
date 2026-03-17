@@ -42,12 +42,12 @@ story_location: "/Users/antoninbruneau/projects/qiara-ha/_bmad-output/implementa
 development_status:
   epic-1: backlog
   epic-1-retrospective: optional
-  epic-2: in-progress
+  epic-2: done
   2-1-implement-qiara-sensor-entity-platform: done
   2-2-retrieve-and-display-qiara-sensor-status: done
-  epic-2-retrospective: optional
-  epic-3: backlog
-  3-1-implement-alarm-control-entity-platform: backlog
+  epic-2-retrospective: done
+  epic-3: in-progress
+  3-1-implement-alarm-control-entity-platform: done
   3-2-arm-qiara-system-in-day-mode: backlog
   3-3-arm-qiara-system-in-night-mode: backlog
   3-4-disarm-qiara-system: backlog
