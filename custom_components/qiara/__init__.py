@@ -22,6 +22,7 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.ALARM_CONTROL_PANEL,
+    Platform.CAMERA,
 ]
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

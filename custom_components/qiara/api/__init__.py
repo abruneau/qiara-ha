@@ -72,18 +72,23 @@ class QiaraApi:
 
     def __init__(self, session: ClientSession, customer_id: int, secret_key: str, base_url: str = "https://api.qiara.co/api/v1") -> None:
         """Initialize the Qiara API."""
+        self._base_url = base_url.rstrip("/")
         self._client = QiaraApiClient(session, customer_id, secret_key, base_url)
         self._alarm_node_id: int | None = None
+        self._camera_node_id: int | None = None
+        self._camera_stream_name: str | None = None
 
     async def async_get_sensors(self) -> list[QiaraSensorData]:
         """Get all sensors with live state from Qiara API."""
         try:
             nodes_raw = await self._client.async_get_sensors()
 
-            # Discover and cache the alarm node ID
+            # Discover and cache alarm and camera node IDs
             for node in nodes_raw:
                 if node.get("type_name") == "Node.HlAlarm":
                     self._alarm_node_id = int(node["id"])
+                elif node.get("type_name") == "Node.HlCam":
+                    self._camera_node_id = int(node["id"])
 
             # Read live endpoint values for DomusNodes (have adapter_id)
             domus_nodes = [n for n in nodes_raw if n.get("adapter_id") is not None]
@@ -120,20 +125,104 @@ class QiaraApi:
 
     async def async_arm_system(self, mode: str) -> bool:
         """Arm the Qiara system in the specified mode."""
+        _LOGGER.debug("Qiara: async_arm_system called, mode=%s, alarm_node_id=%s", mode, self._alarm_node_id)
         if self._alarm_node_id is None:
             raise UpdateFailed("Alarm node not yet discovered — wait for first coordinator refresh")
         try:
-            return await self._client.async_arm_system(self._alarm_node_id, mode)
+            result = await self._client.async_arm_system(self._alarm_node_id, mode)
+            _LOGGER.debug("Qiara: async_arm_system client call returned: %s", result)
+            return result
         except Exception as ex:
             _LOGGER.error("Error arming Qiara system: %s", ex)
             raise UpdateFailed(f"Failed to arm system: {ex}")
 
     async def async_disarm_system(self) -> bool:
         """Disarm the Qiara system."""
+        _LOGGER.debug("Qiara: async_disarm_system called, alarm_node_id=%s", self._alarm_node_id)
         if self._alarm_node_id is None:
             raise UpdateFailed("Alarm node not yet discovered — wait for first coordinator refresh")
         try:
-            return await self._client.async_disarm_system(self._alarm_node_id)
+            result = await self._client.async_disarm_system(self._alarm_node_id)
+            _LOGGER.debug("Qiara: async_disarm_system client call returned: %s", result)
+            return result
         except Exception as ex:
             _LOGGER.error("Error disarming Qiara system: %s", ex)
             raise UpdateFailed(f"Failed to disarm system: {ex}")
+
+    def get_camera_node_id(self) -> int | None:
+        """Return the camera node ID discovered from the nodes list."""
+        return self._camera_node_id
+
+    async def async_ensure_session(self) -> str:
+        """Return a valid session ID, re-authenticating if needed."""
+        return await self._client._ensure_session()
+
+    async def async_activate_camera(self, camera_node_id: int) -> None:
+        """Open the camera shutter (shutter=false means open/streaming)."""
+        try:
+            await self._client.async_write_endpoint(camera_node_id, "shutter", False)
+        except Exception as ex:
+            _LOGGER.error("Error activating Qiara camera: %s", ex)
+            raise UpdateFailed(f"Failed to activate camera: {ex}")
+
+    async def async_deactivate_camera(self, camera_node_id: int) -> None:
+        """Close the camera shutter (shutter=true means closed/stopped)."""
+        try:
+            await self._client.async_write_endpoint(camera_node_id, "shutter", True)
+        except Exception as ex:
+            _LOGGER.error("Error deactivating Qiara camera: %s", ex)
+            raise UpdateFailed(f"Failed to deactivate camera: {ex}")
+
+    def get_camera_stream_name(self) -> str | None:
+        """Return the cached HLS stream name (e.g. 'HLS_TEST')."""
+        return self._camera_stream_name
+
+    async def async_fetch_camera_stream_name(self, camera_node_id: int) -> str | None:
+        """Fetch and cache the HLS stream basename from the camera node.
+
+        The 'stream' endpoint returns a full URL like:
+          eup://02708940165a502a/api/v1/home/stream/HLS_TEST.m3u8
+        We extract just the stem: 'HLS_TEST'.
+        """
+        if self._camera_stream_name:
+            return self._camera_stream_name
+        try:
+            results = await self._client.async_read_endpoints(
+                [{"node_id": camera_node_id, "eps": ["eup_id", "stream"]}]
+            )
+            for entry in results:
+                ep_map = {ep["ep_name"]: ep["value"] for ep in entry.get("ep_values", [])}
+                stream_url = ep_map.get("stream", "")
+                if stream_url:
+                    # Extract basename without extension from URL path
+                    # e.g. "eup://…/home/stream/HLS_TEST.m3u8" → "HLS_TEST"
+                    basename = stream_url.rstrip("/").split("/")[-1]
+                    name = basename.split(".")[0] if "." in basename else basename
+                    if name:
+                        self._camera_stream_name = name
+                        _LOGGER.debug("Qiara camera stream name: %s", name)
+                        return name
+        except Exception as ex:
+            _LOGGER.warning("Could not read camera stream name: %s", ex)
+        return None
+
+    async def async_get_alarm_state(self) -> str | None:
+        """Get the current alarm state from the Qiara API."""
+        if self._alarm_node_id is None:
+            _LOGGER.warning("Qiara: async_get_alarm_state — alarm_node_id is None")
+            return None
+        try:
+            results = await self._client.async_read_endpoints(
+                [{"node_id": self._alarm_node_id, "eps": ["hl_alarm_status"]}]
+            )
+            _LOGGER.debug("Qiara: async_get_alarm_state raw results: %s", results)
+            for entry in results:
+                for ep in entry.get("ep_values", []):
+                    if ep["ep_name"] == "hl_alarm_status":
+                        _LOGGER.debug("Qiara: async_get_alarm_state returning: %s", ep["value"])
+                        return ep["value"]
+            _LOGGER.warning("Qiara: async_get_alarm_state — hl_alarm_status not found in results")
+            return None
+        except Exception as ex:
+            _LOGGER.warning("Qiara: async_get_alarm_state failed: %s", ex)
+            return None

@@ -34,11 +34,13 @@ class QiaraDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=15),
         )
 
-    async def _async_update_data(self) -> dict[str, QiaraSensorData]:
+    async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the Qiara API."""
         try:
             sensors = await self.api.async_get_sensors()
-            return {sensor.id: sensor for sensor in sensors}
+            result: dict[str, Any] = {sensor.id: sensor for sensor in sensors}
+            result["alarm_state"] = await self.api.async_get_alarm_state()
+            return result
         except ConfigEntryAuthFailed:
             raise
         except Exception as ex:

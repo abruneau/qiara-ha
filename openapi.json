@@ -700,13 +700,26 @@ components:
       properties:
         Node.HlAlarm:
           type: object
-          description: Central alarm hub — read/write hl_alarm_status to arm/disarm the system
+          description: |
+            Central alarm hub.
+            READ hl_alarm_status to get current state.
+            WRITE hl_alarm_enable (value="day"|"night") to arm.
+            WRITE hl_alarm_disable (value="") to disarm.
           properties:
             hl_alarm_status:
               type: string
-              description: Current arm state of the system
-              enum: ["off", "day", "night"]
+              description: "READ-ONLY: Current arm state of the system"
+              enum: ["off", "day_armed", "night_armed"]
               example: "off"
+            hl_alarm_enable:
+              type: string
+              description: "WRITE-ONLY: Arm the system. Value is mode: 'day' or 'night'"
+              enum: ["day", "night"]
+              example: "day"
+            hl_alarm_disable:
+              type: string
+              description: "WRITE-ONLY: Disarm the system. Value must be empty string."
+              example: ""
             timeout_before_armed:
               type: integer
               description: Delay in seconds before system arms after command

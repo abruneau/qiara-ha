@@ -37,6 +37,8 @@ async def async_setup_entry(
 
     entities = []
     for sensor_id, sensor_data in coordinator.data.items():
+        if not isinstance(sensor_data, QiaraSensorData):
+            continue
         if sensor_data.type in BINARY_SENSOR_TYPES:
             entities.append(QiaraBinarySensor(coordinator, entry, sensor_id))
 

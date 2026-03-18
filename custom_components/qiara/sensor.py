@@ -28,6 +28,8 @@ async def async_setup_entry(
 
     entities = []
     for sensor_id, sensor_data in coordinator.data.items():
+        if not isinstance(sensor_data, QiaraSensorData):
+            continue
         if sensor_data.battery_level is not None:
             entities.append(QiaraBatterySensor(coordinator, entry, sensor_id))
         if sensor_data.temperature is not None:

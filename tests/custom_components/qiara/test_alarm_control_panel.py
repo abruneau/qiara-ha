@@ -19,6 +19,7 @@ def mock_coordinator():
     """Mock the coordinator with a mocked API."""
     coordinator = MagicMock()
     coordinator.available = True
+    coordinator.data = {}
     coordinator.api = MagicMock()
     coordinator.api.async_arm_system = AsyncMock(return_value=True)
     coordinator.api.async_disarm_system = AsyncMock(return_value=True)
@@ -171,3 +172,29 @@ def test_alarm_panel_availability(alarm_panel, mock_coordinator):
 
     mock_coordinator.available = False
     assert alarm_panel.available is False
+
+
+def test_alarm_state_from_coordinator_data_day(alarm_panel, mock_coordinator):
+    """Test alarm_state returns ARMED_HOME when coordinator data has alarm_state='day'."""
+    mock_coordinator.data = {"alarm_state": "day"}
+    assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
+
+
+def test_alarm_state_from_coordinator_data_night(alarm_panel, mock_coordinator):
+    """Test alarm_state returns ARMED_NIGHT when coordinator data has alarm_state='night'."""
+    mock_coordinator.data = {"alarm_state": "night"}
+    assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_NIGHT
+
+
+def test_alarm_state_from_coordinator_data_off(alarm_panel, mock_coordinator):
+    """Test alarm_state returns DISARMED when coordinator data has alarm_state='off'."""
+    mock_coordinator.data = {"alarm_state": "off"}
+    assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
+
+
+def test_alarm_state_fallback_to_optimistic(alarm_panel, mock_coordinator):
+    """Test alarm_state falls back to _optimistic_state when coordinator data has no alarm_state key."""
+    mock_coordinator.data = {}
+    assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
+    alarm_panel._optimistic_state = AlarmControlPanelState.ARMED_HOME
+    assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME

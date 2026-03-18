@@ -10,7 +10,7 @@
     "aiohttp>=3.8.0",
     "openapi_client @ git+https://github.com/abruneau/qiara-python-sdk.git@a8fe8b867a667362a16c17b1ba6e7c6b889a69b3"
   ],
-  "dependencies": [],
+  "dependencies": ["stream"],
   "codeowners": ["@abruneau"],
   "iot_class": "local_polling",
   "platforms": [

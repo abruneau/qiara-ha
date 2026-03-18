@@ -156,6 +156,10 @@ class QiaraApiClient:
                     },
                     body={"hash_i": 0},
                 )
+                if response.status == 400 and attempt == 0:
+                    _LOGGER.warning("Qiara: nodes returned 400, session likely expired — re-authenticating")
+                    self._session_id = None
+                    continue
                 nodes_data = json.loads(response.data)
                 return nodes_data.get("list", [])
             except ConfigEntryAuthFailed:
@@ -189,6 +193,10 @@ class QiaraApiClient:
                     },
                     body={"list": items},
                 )
+                if response.status == 400 and attempt == 0:
+                    _LOGGER.warning("Qiara: endpoints_read returned 400, session likely expired — re-authenticating")
+                    self._session_id = None
+                    continue
                 return json.loads(response.data).get("list", [])
             except ConfigEntryAuthFailed:
                 if attempt == 0:
@@ -200,25 +208,63 @@ class QiaraApiClient:
                 _LOGGER.error("Failed to read endpoints: %s", ex)
                 raise
 
-    async def async_write_endpoint(self, node_id: int, ep_name: str, value: str) -> None:
+    async def async_write_endpoint(self, node_id: int, ep_name: str, value: Any) -> None:
         """Write a single endpoint value to a node."""
-        session_id = await self._ensure_session()
-        await self._api_client.call_api_async(
-            "POST",
-            f"{self._base_url}/home/endpoints_write",
-            header_params={
-                "x-hlcore-session-id": session_id,
-                "Content-Type": "application/json",
-            },
-            body={"list": [{"node_id": node_id, "eps": [{"ep_name": ep_name, "value": value}]}]},
-        )
+        for attempt in range(2):
+            try:
+                session_id = await self._ensure_session()
+                req_body = {"list": [{"node_id": node_id, "eps": [{"ep_name": ep_name, "value": value}]}]}
+                _LOGGER.debug("Qiara: write_endpoint request body: %s", json.dumps(req_body))
+                response = await self._api_client.call_api_async(
+                    "POST",
+                    f"{self._base_url}/home/endpoints_write",
+                    header_params={
+                        "x-hlcore-session-id": session_id,
+                        "Content-Type": "application/json",
+                    },
+                    body=req_body,
+                )
+                _LOGGER.debug("Qiara: write_endpoint response: HTTP %s body=%s", response.status, response.data)
+                if response.status == 400 and attempt == 0:
+                    _LOGGER.warning("Qiara: endpoints_write returned 400, session likely expired — re-authenticating")
+                    self._session_id = None
+                    continue
+                if response.status >= 400:
+                    raise ApiException(status=response.status, reason=response.reason)
+                # The API returns HTTP 200 even on failure — check per-endpoint success flag
+                try:
+                    body = json.loads(response.data)
+                    for entry in body.get("list", []):
+                        for ep_status in entry.get("status", []):
+                            if ep_status.get("ep_name") == ep_name and ep_status.get("success") == 0:
+                                raise ApiException(
+                                    status=200,
+                                    reason=f"Device rejected write {ep_name}={value} on node {node_id}",
+                                )
+                except ApiException:
+                    raise
+                except Exception:
+                    pass  # non-parseable body is not a fatal error
+                _LOGGER.debug("Qiara: write %s=%s on node %s succeeded", ep_name, value, node_id)
+                return
+            except ConfigEntryAuthFailed:
+                if attempt == 0:
+                    _LOGGER.warning("Qiara: session expired, re-authenticating")
+                    self._session_id = None
+                    continue
+                raise
+            except ApiException:
+                raise
+            except Exception as ex:
+                _LOGGER.error("Failed to write endpoint: %s", ex)
+                raise
 
     async def async_arm_system(self, node_id: int, mode: str) -> bool:
-        """Arm the security system by writing hl_alarm_status on the alarm node."""
-        await self.async_write_endpoint(node_id, "hl_alarm_status", mode)
+        """Arm the security system via hl_alarm_enable on the alarm node."""
+        await self.async_write_endpoint(node_id, "hl_alarm_enable", mode)
         return True
 
     async def async_disarm_system(self, node_id: int) -> bool:
-        """Disarm the security system by writing hl_alarm_status=off on the alarm node."""
-        await self.async_write_endpoint(node_id, "hl_alarm_status", "off")
+        """Disarm the security system via hl_alarm_disable on the alarm node."""
+        await self.async_write_endpoint(node_id, "hl_alarm_disable", "")
         return True

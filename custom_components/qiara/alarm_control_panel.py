@@ -1,6 +1,8 @@
 """Support for Qiara alarm control panel."""
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
     AlarmControlPanelEntityFeature,
@@ -13,8 +15,18 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, SYSTEM_MODE_DAY, SYSTEM_MODE_NIGHT
+from .const import DOMAIN, SYSTEM_MODE_DAY, SYSTEM_MODE_DISARMED, SYSTEM_MODE_NIGHT
 from .coordinator import QiaraDataUpdateCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+
+_ALARM_STATE_MAP: dict[str, AlarmControlPanelState] = {
+    SYSTEM_MODE_DAY: AlarmControlPanelState.ARMED_HOME,
+    "day_armed": AlarmControlPanelState.ARMED_HOME,
+    SYSTEM_MODE_NIGHT: AlarmControlPanelState.ARMED_NIGHT,
+    "night_armed": AlarmControlPanelState.ARMED_NIGHT,
+    SYSTEM_MODE_DISARMED: AlarmControlPanelState.DISARMED,
+}
 
 
 async def async_setup_entry(
@@ -54,15 +66,21 @@ class QiaraAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
 
     @property
     def alarm_state(self) -> AlarmControlPanelState:
-        """Return the current alarm state."""
+        """Return the current alarm state from coordinator data, with optimistic fallback."""
+        raw = self.coordinator.data.get("alarm_state") if self.coordinator.data else None
+        if raw is not None:
+            return _ALARM_STATE_MAP.get(raw, AlarmControlPanelState.DISARMED)
         return self._optimistic_state
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
         """Arm in home (day) mode."""
+        _LOGGER.debug("Qiara: async_alarm_arm_home called")
         try:
             await self.coordinator.api.async_arm_system(SYSTEM_MODE_DAY)
         except Exception as err:
+            _LOGGER.error("Qiara: async_alarm_arm_home failed: %s", err)
             raise HomeAssistantError(str(err)) from err
+        _LOGGER.debug("Qiara: async_alarm_arm_home succeeded, setting optimistic state")
         self._optimistic_state = AlarmControlPanelState.ARMED_HOME
         self.async_write_ha_state()
 
@@ -77,9 +95,12 @@ class QiaraAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         """Disarm the alarm system."""
+        _LOGGER.debug("Qiara: async_alarm_disarm called")
         try:
             await self.coordinator.api.async_disarm_system()
         except Exception as err:
+            _LOGGER.error("Qiara: async_alarm_disarm failed: %s", err)
             raise HomeAssistantError(str(err)) from err
+        _LOGGER.debug("Qiara: async_alarm_disarm succeeded, setting optimistic state")
         self._optimistic_state = AlarmControlPanelState.DISARMED
         self.async_write_ha_state()
