@@ -86,7 +86,10 @@ paths:
   /home/nodes:
     post:
       summary: Get home nodes
-      description: Retrieve list of all nodes (devices) in the home system
+      description: |
+        Retrieve list of all nodes (devices) in the home system.
+        Must send body {"hash_i": 0} (spec originally omitted the required body).
+        Returns HTTP 400 (not 401) when the session is expired.
       operationId: getNodes
       parameters:
         - $ref: "#/components/parameters/SessionHeader"
@@ -142,7 +145,9 @@ paths:
   /home/endpoints_read:
     post:
       summary: Read endpoint values
-      description: Read configuration values from specified endpoints
+      description: |
+        Read configuration values from specified endpoints.
+        Note: Returns HTTP 400 (not 401) when the session is expired.
       operationId: readEndpoints
       parameters:
         - $ref: "#/components/parameters/SessionHeader"
@@ -167,7 +172,10 @@ paths:
   /home/endpoints_write:
     post:
       summary: Write endpoint values
-      description: Write configuration values to specified endpoints
+      description: |
+        Write configuration values to specified endpoints.
+        Note: Returns HTTP 400 (not 401) when the session is expired.
+        Note: Returns HTTP 200 even on write failure — check success=1 per-endpoint in the response body.
       operationId: writeEndpoints
       parameters:
         - $ref: "#/components/parameters/SessionHeader"
@@ -228,7 +236,11 @@ paths:
   /home/open_stream:
     post:
       summary: Open video stream
-      description: Open a live video stream
+      description: |
+        Open a live video stream.
+        NOTE: In practice, the mobile app activates streaming by writing shutter=false to the camera
+        node via /home/endpoints_write, then reading the HLS stream directly. This /home/open_stream
+        endpoint may be a legacy or alternative activation path.
       operationId: openVideoStream
       parameters:
         - $ref: "#/components/parameters/SessionHeader"
@@ -249,7 +261,7 @@ paths:
   /home/stream/live.jpeg:
     get:
       summary: Get live stream snapshot
-      description: Retrieve a JPEG snapshot from the live video stream
+      description: Retrieve a JPEG snapshot from the live video stream. Camera shutter must be open first (write shutter=false on the camera node).
       operationId: getStreamSnapshot
       parameters:
         - $ref: "#/components/parameters/SessionHeader"
@@ -258,6 +270,82 @@ paths:
           description: Snapshot retrieved successfully
           content:
             image/jpeg:
+              schema:
+                type: string
+                format: binary
+
+  /home/stream/{stream_name}.m3u8:
+    get:
+      summary: HLS master playlist
+      description: |
+        HLS master playlist listing available quality variants (360p, 720p, 1080p).
+        The stream_name comes from the basename of the camera node's 'stream' endpoint value
+        (e.g. "HLS_TEST" from "eup://…/home/stream/HLS_TEST.m3u8").
+        Camera shutter must be open first (write shutter=false on the camera node).
+        Returns HTTP 206 Partial Content.
+      operationId: getHlsMasterPlaylist
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+        - name: stream_name
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "HLS_TEST"
+      responses:
+        "206":
+          description: HLS master playlist
+          content:
+            application/vnd.apple.mpegurl:
+              schema:
+                type: string
+
+  /home/stream/{quality}/{stream_name}.m3u8:
+    get:
+      summary: HLS quality playlist
+      description: HLS media playlist for a specific quality level. Returns segment filenames.
+      operationId: getHlsQualityPlaylist
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+        - name: quality
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: ["360p", "720p", "1080p"]
+        - name: stream_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "206":
+          description: HLS quality playlist
+
+  /home/stream/{quality}/{segment}:
+    get:
+      summary: HLS video segment
+      description: MPEG-4 video segment (.m4s file) for the HLS stream.
+      operationId: getHlsSegment
+      parameters:
+        - $ref: "#/components/parameters/SessionHeader"
+        - name: quality
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: ["360p", "720p", "1080p"]
+        - name: segment
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "HLS_TEST-11.m4s"
+      responses:
+        "206":
+          description: Video segment data
+          content:
+            video/mp4:
               schema:
                 type: string
                 format: binary
@@ -371,8 +459,8 @@ components:
           example: 12345
         challenge_rsp:
           type: string
-          description: Challenge response computed using HMAC-SHA256
-          example: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+          description: Challenge response computed using HMAC-SHA1 (note: spec originally said SHA256 but live device uses SHA1)
+          example: "a3f1b2c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0"
 
     ApiNewSessionResponse:
       type: object
@@ -649,8 +737,10 @@ components:
           type: array
           description: |
             List of nodes and endpoint name-value pairs to write.
-            Example — arm system in day mode: node_id=7, ep_name="hl_alarm_status", value="day"
-            Example — disarm: node_id=7, ep_name="hl_alarm_status", value="off"
+            Example — arm system in day mode: node_id=7, ep_name="hl_alarm_enable", value="day"
+            Example — arm in night mode: node_id=7, ep_name="hl_alarm_enable", value="night"
+            Example — disarm: node_id=7, ep_name="hl_alarm_disable", value=""
+            Note: HTTP 200 does NOT guarantee success — check success=1 per-endpoint in the response body.
           items:
             type: object
             required:
@@ -671,7 +761,7 @@ components:
         list:
           - node_id: 7
             eps:
-              - ep_name: "hl_alarm_status"
+              - ep_name: "hl_alarm_enable"
                 value: "day"
 
     EndpointWrite:
@@ -690,7 +780,33 @@ components:
 
     ApiEndpointWriteResponse:
       type: object
-      description: Response confirming endpoint write operation
+      description: |
+        Response confirming endpoint write operation.
+        IMPORTANT: The device always returns HTTP 200. Check success=1 per endpoint to confirm the write succeeded.
+      properties:
+        list:
+          type: array
+          items:
+            type: object
+            properties:
+              node_id:
+                type: integer
+              status:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    ep_name:
+                      type: string
+                    success:
+                      type: integer
+                      description: 1=success, 0=failure
+      example:
+        list:
+          - node_id: 7
+            status:
+              - ep_name: "hl_alarm_enable"
+                success: 1
 
     NodeEndpointNames:
       type: object
@@ -823,22 +939,64 @@ components:
               description: Keypad PIN code
         Node.HlCam:
           type: object
-          description: IP camera
+          description: |
+            IP camera node. To start streaming:
+            1. WRITE shutter=false (opens the shutter / activates the video feed)
+            2. GET /home/stream/{stream_name}.m3u8 (HLS master playlist)
+            3. WRITE shutter=true to stop.
+            The /home/open_stream endpoint exists in the spec but real activation uses the shutter endpoint write.
           properties:
+            shutter:
+              type: boolean
+              description: |
+                WRITE: false = open shutter (start streaming), true = close shutter (stop streaming).
+                Note: inverted from intuition — false means the shutter is open (camera is on).
+              example: false
+            eup_id:
+              type: string
+              description: Device endpoint identifier (e.g. "02708940165a502a"). Not the stream name.
+              example: "02708940165a502a"
             stream:
               type: string
+              description: |
+                READ: Full stream URL in eup:// format, e.g. "eup://{eup_id}/api/v1/home/stream/HLS_TEST.m3u8".
+                Extract the basename (without .m3u8) to build the HLS URL:
+                  GET /home/stream/{basename}.m3u8          ← master playlist (lists quality variants)
+                  GET /home/stream/360p/{basename}.m3u8     ← 360p playlist
+                  GET /home/stream/720p/{basename}.m3u8     ← 720p playlist
+                  GET /home/stream/1080p/{basename}.m3u8    ← 1080p playlist
+                  GET /home/stream/{quality}/{basename}-{n}.m4s ← video segments
+              example: "eup://02708940165a502a/api/v1/home/stream/HLS_TEST.m3u8"
+            shutter_signal:
+              type: integer
+              description: Signal strength or shutter state indicator (read-only)
             video_settings:
               type: object
+              description: Camera video configuration settings
             recorder_status:
               type: string
+              description: Current recording status
             wifi_ssid:
               type: string
+              description: WiFi SSID the camera is connected to
+            room:
+              type: string
+              description: Human-readable room name assigned in the Qiara app
+            area:
+              type: string
+              description: Area type key
             day_alarm:
               type: integer
+              description: Whether this camera triggers the alarm in day mode (0/1)
             night_alarm:
               type: integer
+              description: Whether this camera triggers the alarm in night mode (0/1)
             air_quality:
               type: integer
+              description: Air quality reading
+            fingerprint:
+              type: string
+              description: Device fingerprint
 
     ApiHistoryBody:
       type: object

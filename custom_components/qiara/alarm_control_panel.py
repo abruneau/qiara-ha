@@ -26,6 +26,7 @@ _ALARM_STATE_MAP: dict[str, AlarmControlPanelState] = {
     SYSTEM_MODE_NIGHT: AlarmControlPanelState.ARMED_NIGHT,
     "night_armed": AlarmControlPanelState.ARMED_NIGHT,
     SYSTEM_MODE_DISARMED: AlarmControlPanelState.DISARMED,
+    "triggered": AlarmControlPanelState.TRIGGERED,
 }
 
 
