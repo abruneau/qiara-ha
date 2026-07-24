@@ -23,6 +23,8 @@ def mock_coordinator():
     coordinator.api = MagicMock()
     coordinator.api.async_arm_system = AsyncMock(return_value=True)
     coordinator.api.async_disarm_system = AsyncMock(return_value=True)
+    coordinator.api.async_get_alarm_state = AsyncMock(return_value=None)
+    coordinator.async_update_listeners = MagicMock()
     return coordinator
 
 
@@ -61,78 +63,107 @@ def test_alarm_panel_supported_features(alarm_panel):
 @pytest.mark.asyncio
 async def test_alarm_arm_home(alarm_panel, mock_coordinator):
     """Test arming in home (day) mode calls async_arm_system with 'day' and notifies HA."""
-    with patch.object(alarm_panel, "async_write_ha_state") as mock_write:
+    with patch.object(alarm_panel, "async_write_ha_state") as mock_write, patch.object(
+        alarm_panel, "_async_confirm_state", AsyncMock()
+    ) as mock_confirm:
         await alarm_panel.async_alarm_arm_home()
 
     mock_coordinator.api.async_arm_system.assert_called_once_with(SYSTEM_MODE_DAY)
     assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
-    mock_write.assert_called_once()
+    assert mock_write.call_count == 2
+    mock_confirm.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_alarm_arm_home_shows_pending_state_first(alarm_panel):
+    """Test that arm_home shows the ARMING pending state before the final ARMED_HOME state."""
+    seen_states = []
+
+    def record_state() -> None:
+        seen_states.append(alarm_panel.alarm_state)
+
+    with patch.object(
+        alarm_panel, "async_write_ha_state", side_effect=record_state
+    ), patch.object(alarm_panel, "_async_confirm_state", AsyncMock()):
+        await alarm_panel.async_alarm_arm_home()
+
+    assert seen_states == [
+        AlarmControlPanelState.ARMING,
+        AlarmControlPanelState.ARMED_HOME,
+    ]
 
 
 @pytest.mark.asyncio
 async def test_alarm_arm_night(alarm_panel, mock_coordinator):
     """Test arming in night mode calls async_arm_system with 'night' and notifies HA."""
-    with patch.object(alarm_panel, "async_write_ha_state") as mock_write:
+    with patch.object(alarm_panel, "async_write_ha_state") as mock_write, patch.object(
+        alarm_panel, "_async_confirm_state", AsyncMock()
+    ) as mock_confirm:
         await alarm_panel.async_alarm_arm_night()
 
     mock_coordinator.api.async_arm_system.assert_called_once_with(SYSTEM_MODE_NIGHT)
     assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_NIGHT
-    mock_write.assert_called_once()
+    assert mock_write.call_count == 2
+    mock_confirm.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_alarm_disarm(alarm_panel, mock_coordinator):
     """Test disarming calls async_disarm_system, sets state to DISARMED, and notifies HA."""
-    # First arm it so we can verify disarm actually changes state
-    await alarm_panel.async_alarm_arm_home()
-    assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
+    with patch.object(alarm_panel, "_async_confirm_state", AsyncMock()):
+        # First arm it so we can verify disarm actually changes state
+        await alarm_panel.async_alarm_arm_home()
+        assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
 
-    with patch.object(alarm_panel, "async_write_ha_state") as mock_write:
-        await alarm_panel.async_alarm_disarm()
+        with patch.object(alarm_panel, "async_write_ha_state") as mock_write:
+            await alarm_panel.async_alarm_disarm()
 
     mock_coordinator.api.async_disarm_system.assert_called_once()
     assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
-    mock_write.assert_called_once()
+    assert mock_write.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_alarm_arm_home_error(alarm_panel, mock_coordinator):
-    """Test that arm_home raises HomeAssistantError on API failure."""
+    """Test that arm_home raises HomeAssistantError on API failure and clears the optimistic override."""
     mock_coordinator.api.async_arm_system = AsyncMock(side_effect=Exception("API error"))
 
     with pytest.raises(HomeAssistantError):
         await alarm_panel.async_alarm_arm_home()
 
-    # State should remain unchanged
+    # State should fall back to coordinator truth (no data yet -> DISARMED), not stay stuck ARMING
+    assert alarm_panel._optimistic_state is None
     assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
 
 
 @pytest.mark.asyncio
 async def test_alarm_arm_night_error(alarm_panel, mock_coordinator):
-    """Test that arm_night raises HomeAssistantError on API failure."""
+    """Test that arm_night raises HomeAssistantError on API failure and clears the optimistic override."""
     mock_coordinator.api.async_arm_system = AsyncMock(side_effect=Exception("API error"))
 
     with pytest.raises(HomeAssistantError):
         await alarm_panel.async_alarm_arm_night()
 
-    # State should remain unchanged
+    assert alarm_panel._optimistic_state is None
     assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
 
 
 @pytest.mark.asyncio
 async def test_alarm_disarm_error(alarm_panel, mock_coordinator):
-    """Test that disarm raises HomeAssistantError on API failure and preserves armed state."""
-    # Arm first so we can verify a failed disarm doesn't change the state
-    await alarm_panel.async_alarm_arm_home()
-    assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
+    """Test that disarm raises HomeAssistantError on API failure and preserves the last confirmed armed state."""
+    with patch.object(alarm_panel, "_async_confirm_state", AsyncMock()):
+        # Arm first so we can verify a failed disarm doesn't silently flip to DISARMED
+        await alarm_panel.async_alarm_arm_home()
+        assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
 
-    mock_coordinator.api.async_disarm_system = AsyncMock(side_effect=Exception("API error"))
+        mock_coordinator.api.async_disarm_system = AsyncMock(side_effect=Exception("API error"))
 
-    with pytest.raises(HomeAssistantError):
-        await alarm_panel.async_alarm_disarm()
+        with pytest.raises(HomeAssistantError):
+            await alarm_panel.async_alarm_disarm()
 
-    # State should remain ARMED_HOME, not flip to DISARMED
-    assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
+    # Optimistic override is cleared; coordinator has no data yet so it falls back to DISARMED
+    # (the coordinator's periodic poll is the source of truth for what actually happened on the device).
+    assert alarm_panel._optimistic_state is None
 
 
 @pytest.mark.asyncio
@@ -198,3 +229,80 @@ def test_alarm_state_fallback_to_optimistic(alarm_panel, mock_coordinator):
     assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
     alarm_panel._optimistic_state = AlarmControlPanelState.ARMED_HOME
     assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
+
+
+def test_alarm_state_optimistic_overrides_stale_coordinator_data(alarm_panel, mock_coordinator):
+    """Regression test: a fresh optimistic value must win over stale coordinator data.
+
+    Before this fix, alarm_state always preferred coordinator.data["alarm_state"] when
+    present, so the widget kept showing the pre-command state until the next ~60s poll.
+    """
+    mock_coordinator.data = {"alarm_state": "off"}
+    alarm_panel._optimistic_state = AlarmControlPanelState.ARMED_HOME
+    assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
+
+
+@pytest.mark.asyncio
+async def test_confirm_state_success_updates_coordinator_and_clears_optimistic(
+    alarm_panel, mock_coordinator
+):
+    """Test that a matching confirm poll writes coordinator data and clears the optimistic override."""
+    alarm_panel._optimistic_state = AlarmControlPanelState.ARMED_HOME
+    mock_coordinator.data = {"alarm_state": "off"}
+    mock_coordinator.api.async_get_alarm_state = AsyncMock(return_value="day_armed")
+
+    with patch(
+        "custom_components.qiara.alarm_control_panel.asyncio.sleep", AsyncMock()
+    ), patch.object(alarm_panel, "async_write_ha_state") as mock_write:
+        await alarm_panel._async_confirm_state(("day", "day_armed"))
+
+    assert mock_coordinator.data["alarm_state"] == "day_armed"
+    mock_coordinator.async_update_listeners.assert_called_once()
+    assert alarm_panel._optimistic_state is None
+    mock_write.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_confirm_state_retries_then_confirms(alarm_panel, mock_coordinator):
+    """Test that the confirm loop keeps polling until the device reports the expected state."""
+    alarm_panel._optimistic_state = AlarmControlPanelState.ARMED_NIGHT
+    mock_coordinator.data = {"alarm_state": "off"}
+    mock_coordinator.api.async_get_alarm_state = AsyncMock(
+        side_effect=["off", "off", "night_armed"]
+    )
+
+    with patch("custom_components.qiara.alarm_control_panel.asyncio.sleep", AsyncMock()):
+        await alarm_panel._async_confirm_state(("night", "night_armed"))
+
+    assert mock_coordinator.api.async_get_alarm_state.call_count == 3
+    assert alarm_panel._optimistic_state is None
+
+
+@pytest.mark.asyncio
+async def test_confirm_state_timeout_keeps_optimistic(alarm_panel, mock_coordinator):
+    """Test that the confirm loop gives up after its attempt budget without clearing the optimistic state."""
+    alarm_panel._optimistic_state = AlarmControlPanelState.ARMED_HOME
+    mock_coordinator.data = {"alarm_state": "off"}
+    mock_coordinator.api.async_get_alarm_state = AsyncMock(return_value="off")
+
+    with patch("custom_components.qiara.alarm_control_panel.asyncio.sleep", AsyncMock()):
+        await alarm_panel._async_confirm_state(("day", "day_armed"))
+
+    assert alarm_panel._optimistic_state == AlarmControlPanelState.ARMED_HOME
+    mock_coordinator.async_update_listeners.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_confirm_state_tolerates_poll_errors(alarm_panel, mock_coordinator):
+    """Test that a transient error from a single poll attempt doesn't abort the confirm loop."""
+    alarm_panel._optimistic_state = AlarmControlPanelState.DISARMED
+    mock_coordinator.data = {"alarm_state": "day"}
+    mock_coordinator.api.async_get_alarm_state = AsyncMock(
+        side_effect=[Exception("transient"), "off"]
+    )
+
+    with patch("custom_components.qiara.alarm_control_panel.asyncio.sleep", AsyncMock()):
+        await alarm_panel._async_confirm_state(("off",))
+
+    assert mock_coordinator.data["alarm_state"] == "off"
+    assert alarm_panel._optimistic_state is None
