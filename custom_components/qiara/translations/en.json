@@ -5,31 +5,35 @@
         "title": "Connect to Qiara",
         "description": "Enter your Qiara credentials.",
         "data": {
+          "host": "Host",
           "customer_id": "Customer ID",
           "secret_key": "Secret Key",
-          "base_url": "Base URL"
+          "port": "API port (optional)"
         },
         "data_description": {
+          "host": "IP address or hostname of your Qiara hub on the local network, e.g. 192.0.2.10 or lwip.localdomain",
           "secret_key": "The HMAC secret key from the Qiara APK or admin settings. Keep this confidential.",
-          "base_url": "Local API address, e.g. https://192.0.2.10:64218/api/v1"
+          "port": "Only change this if your hub uses a non-standard API port (default 64218)."
         }
       },
       "reauth_confirm": {
         "title": "Re-authenticate Qiara",
         "description": "Your Qiara credentials are no longer valid. Please re-enter them.",
         "data": {
+          "host": "Host",
           "customer_id": "Customer ID",
           "secret_key": "Secret Key",
-          "base_url": "Base URL"
+          "port": "API port (optional)"
         },
         "data_description": {
+          "host": "IP address or hostname of your Qiara hub on the local network, e.g. 192.0.2.10 or lwip.localdomain",
           "secret_key": "The HMAC secret key from the Qiara APK or admin settings. Keep this confidential.",
-          "base_url": "Local API address, e.g. https://192.0.2.10:64218/api/v1"
+          "port": "Only change this if your hub uses a non-standard API port (default 64218)."
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect. Check the Base URL and try again.",
+      "cannot_connect": "Failed to connect. Check the host and try again.",
       "invalid_auth": "Invalid credentials. Check your Customer ID and Secret Key."
     },
     "abort": {
@@ -42,18 +46,20 @@
       "init": {
         "title": "Update Qiara Credentials",
         "data": {
+          "host": "Host",
           "customer_id": "Customer ID",
           "secret_key": "Secret Key",
-          "base_url": "Base URL"
+          "port": "API port (optional)"
         },
         "data_description": {
+          "host": "IP address or hostname of your Qiara hub on the local network, e.g. 192.0.2.10 or lwip.localdomain",
           "secret_key": "The HMAC secret key from the Qiara APK or admin settings. Keep this confidential.",
-          "base_url": "Local API address, e.g. https://192.0.2.10:64218/api/v1"
+          "port": "Only change this if your hub uses a non-standard API port (default 64218)."
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect. Check the Base URL and try again.",
+      "cannot_connect": "Failed to connect. Check the host and try again.",
       "invalid_auth": "Invalid credentials. Check your Customer ID and Secret Key."
     }
   }
