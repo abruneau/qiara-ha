@@ -31,6 +31,10 @@ _CAMERA_PROXY_KEY = "_camera_stream_proxy"
 # Snapshot cache TTL — avoids re-opening the shutter on every thumbnail poll.
 _SNAPSHOT_CACHE_SECONDS = 10
 
+# Grace after opening the shutter before the camera produces video; without it
+# HA's first SRT connect races the camera startup and errors ("Invalid data").
+_SHUTTER_WARMUP_SECONDS = 3
+
 # SRT low-latency live path. The hub runs an SRT listener on UDP 9000 reachable
 # at the hub's own IP; streamid = stream name and passphrase = /home/open_stream
 # both come from the local API. HA's own PyAV can't open SRT, so we register the
@@ -340,8 +344,12 @@ class QiaraCamera(CoordinatorEntity, Camera):
 
         # SRT only carries video while the camera is capturing, so open the
         # shutter now; the watcher below closes it again when viewing stops.
+        # The camera needs a moment after the shutter opens before it produces
+        # video, so wait briefly — otherwise HA's first connect races the
+        # startup and fails with "Invalid data found" before retrying.
         with contextlib.suppress(Exception):
             await api.async_activate_camera(camera_node_id)
+        await asyncio.sleep(_SHUTTER_WARMUP_SECONDS)
 
         srt_url = build_srt_url(host, self._srt_port, streamid, passphrase, self._srt_latency)
         # go2rtc pulls SRT via ffmpeg; copy the HEVC video (no transcode) and
