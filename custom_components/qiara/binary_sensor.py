@@ -72,11 +72,19 @@ class QiaraBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
-        """Return true if the binary sensor is on."""
+        """Return true if the binary sensor is on (open / motion detected).
+
+        The device reports an inactive sensor as ``False`` (and sometimes
+        ``None``), and an active one as a truthy value — ``True`` from an
+        endpoint read, or a state string like ``"dws_open"``/``"mvt_detected"``
+        from a push event. So treat any truthy value as "on"; ``False``/``None``
+        must read as "off" (a plain ``is not None`` check wrongly reported
+        every idle sensor as detected).
+        """
         sensor_data: QiaraSensorData = self.coordinator.data.get(self._sensor_id)
         if not sensor_data:
             return None
-        return sensor_data.state is not None
+        return bool(sensor_data.state)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
