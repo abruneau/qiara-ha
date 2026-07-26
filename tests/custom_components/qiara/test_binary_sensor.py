@@ -53,9 +53,23 @@ def test_binary_sensor_is_on(mock_coordinator, mock_entry):
     """Test binary sensor is_on property."""
     sensor_door = QiaraBinarySensor(mock_coordinator, mock_entry, "door_1")
     sensor_motion = QiaraBinarySensor(mock_coordinator, mock_entry, "motion_1")
-    
+
     assert sensor_door.is_on is True
     assert sensor_motion.is_on is False
+
+
+def test_binary_sensor_is_on_false_state_reads_off(mock_coordinator, mock_entry):
+    """An idle sensor reports state False (not None) and must read as off."""
+    mock_coordinator.data["motion_1"].state = False
+    sensor = QiaraBinarySensor(mock_coordinator, mock_entry, "motion_1")
+    assert sensor.is_on is False
+
+    # Truthy states (endpoint read True, or a push state string) read as on.
+    mock_coordinator.data["motion_1"].state = True
+    assert sensor.is_on is True
+
+    mock_coordinator.data["motion_1"].state = "mvt_detected"
+    assert sensor.is_on is True
 
 def test_binary_sensor_attributes(mock_coordinator, mock_entry):
     """Test binary sensor extra state attributes."""
