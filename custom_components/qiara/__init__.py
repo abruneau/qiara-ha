@@ -17,6 +17,8 @@ from .coordinator import QiaraDataUpdateCoordinator
 from .api import QiaraApi
 
 WEBHOOK_ID = "qiara_alarm_events"
+# Key under hass.data[DOMAIN] tracking whether the shared webhook is registered.
+WEBHOOK_REGISTERED_KEY = "_webhook_registered"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,15 +69,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register webhook for real-time push events from qiara-ha-bridge
-    webhook.async_register(
-        hass,
-        DOMAIN,
-        "Qiara Events",
-        WEBHOOK_ID,
-        _handle_webhook,
-    )
-    entry.async_on_unload(lambda: webhook.async_unregister(hass, WEBHOOK_ID))
+    # Register the webhook for real-time push events from qiara-ha-bridge.
+    # All Qiara entries share a single fixed endpoint (the bridge is configured
+    # with this URL), so register it only once and tear it down when the last
+    # entry unloads — re-registering the same ID would raise.
+    if not hass.data[DOMAIN].get(WEBHOOK_REGISTERED_KEY):
+        webhook.async_register(hass, DOMAIN, "Qiara Events", WEBHOOK_ID, _handle_webhook)
+        hass.data[DOMAIN][WEBHOOK_REGISTERED_KEY] = True
 
     # Reload entry when options change
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -107,13 +107,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    # Remove entry from hass.data
-    if DOMAIN in hass.data:
+    if unload_ok and DOMAIN in hass.data:
         hass.data[DOMAIN].pop(entry.entry_id, None)
+
+        # Tear down the shared webhook once the last Qiara entry is gone.
+        remaining = any(
+            isinstance(v, QiaraDataUpdateCoordinator)
+            for v in hass.data[DOMAIN].values()
+        )
+        if not remaining and hass.data[DOMAIN].pop(WEBHOOK_REGISTERED_KEY, None):
+            webhook.async_unregister(hass, WEBHOOK_ID)
 
     return unload_ok
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry."""
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    await hass.config_entries.async_reload(entry.entry_id)

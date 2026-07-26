@@ -25,13 +25,16 @@ Local python environment use venv
 source .venv/bin/activate
 ```
 
-Tests use `pytest-asyncio` and mock all HA and API dependencies — **no live device or HA instance needed**. Tests run inside the Docker container where `homeassistant` is installed:
+Tests use `pytest-asyncio` and mock all HA and API dependencies — **no live device or HA instance needed**. Tests run inside the Docker container where `homeassistant` is installed. The container image does **not** ship `pytest`/`pytest-asyncio`, so install the test deps first (they're not persisted across container recreation):
 
 ```bash
-python -m pytest ./custom_components/../tests/ -q
+docker compose exec homeassistant pip install -r /config/requirements-test.txt
+docker compose exec homeassistant python -m pytest /config/tests/ -q
 # or a single test file:
-python -m pytest ./custom_components/../tests/custom_components/qiara/test_alarm_control_panel.py -v
+docker compose exec homeassistant python -m pytest /config/tests/custom_components/qiara/test_alarm_control_panel.py -v
 ```
+
+The `tests/` directory is not bind-mounted (only `custom_components/qiara/` is), so copy it in after editing tests: `docker compose cp tests/. homeassistant:/config/tests/`. Test functions carry `@pytest.mark.asyncio` markers, so no extra pytest config is required.
 
 Tests do **not** use a `conftest.py` — each module defines its own `pytest.fixture` functions inline.
 
@@ -50,7 +53,7 @@ QiaraApi (api/__init__.py)
   → raises UpdateFailed / ConfigEntryAuthFailed for HA to handle
 
 QiaraDataUpdateCoordinator (coordinator.py)
-  → polls every 15 s via _async_update_data()
+  → polls every 60 s via _async_update_data()
   → returns dict[str, Any]:
       sensor_id → QiaraSensorData   (one entry per sensor node)
       "alarm_state" → str | None    (special key: "off", "day_armed", "night_armed")

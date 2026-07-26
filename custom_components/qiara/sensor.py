@@ -7,6 +7,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, Sen
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -27,6 +28,7 @@ async def async_setup_entry(
     coordinator: QiaraDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities = []
+    temperature_unique_ids: set[str] = set()
     for sensor_id, sensor_data in coordinator.data.items():
         if not isinstance(sensor_data, QiaraSensorData):
             continue
@@ -34,6 +36,21 @@ async def async_setup_entry(
             entities.append(QiaraBatterySensor(coordinator, entry, sensor_id))
         if sensor_data.temperature is not None:
             entities.append(QiaraTemperatureSensor(coordinator, entry, sensor_id))
+            temperature_unique_ids.add(f"{entry.entry_id}_{sensor_id}_temperature")
+
+    # Drop any temperature entity for a node that no longer reports a
+    # temperature. Nodes without a real reading (door/window, motion, keypad)
+    # only ever return the sentinel value 200, which older versions exposed as
+    # ~20 °C. Those entities now linger in the registry as "unavailable"
+    # restored entities, so remove them instead of leaving them orphaned.
+    ent_reg = er.async_get(hass)
+    for reg_entry in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+        if (
+            reg_entry.domain == "sensor"
+            and reg_entry.unique_id.endswith("_temperature")
+            and reg_entry.unique_id not in temperature_unique_ids
+        ):
+            ent_reg.async_remove(reg_entry.entity_id)
 
     async_add_entities(entities)
 

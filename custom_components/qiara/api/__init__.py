@@ -9,7 +9,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .client import QiaraApiClient
-from ..models import QiaraSensorList, QiaraSensorData
+from ..models import QiaraSensorData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,11 +59,26 @@ def _apply_endpoints(sensor: QiaraSensorData, ep_values: list[dict]) -> QiaraSen
     if "reachable" in ep_map:
         updates["available"] = bool(ep_map["reachable"])
     if "room" in ep_map and ep_map["room"]:
-        updates["name"] = ep_map["room"].strip()
+        room = ep_map["room"].strip()
+        if room:
+            # Name a placed node "<Room> <Type>" (e.g. "Sous Sol Door/Window")
+            # so the room is readable and the sensor type stays visible. Nodes
+            # without a room keep the default "Qiara <Type> <id>" name.
+            label = _NODE_TYPE_LABELS.get(sensor.type, sensor.type.capitalize())
+            short_label = label.removesuffix(" Sensor")
+            updates["name"] = f"{room.title()} {short_label}"
     if "temperature" in ep_map and ep_map["temperature"] is not None:
         raw_temp = ep_map["temperature"]
-        if isinstance(raw_temp, dict) and raw_temp.get("value") is not None:
-            updates["temperature"] = raw_temp["value"] / 10.0
+        # The device reports temperature as {"timestamp": <unix>, "value": <int>}.
+        # The value is whole degrees Celsius (e.g. 24 == 24 °C). A timestamp of 0
+        # means the node has never reported a reading — its value is a sentinel
+        # (200) rather than a real temperature, so leave it unset in that case.
+        if (
+            isinstance(raw_temp, dict)
+            and raw_temp.get("value") is not None
+            and raw_temp.get("timestamp")
+        ):
+            updates["temperature"] = float(raw_temp["value"])
     return sensor.model_copy(update=updates)
 
 
@@ -111,17 +126,6 @@ class QiaraApi:
         except Exception as ex:
             _LOGGER.error("Error fetching sensors from Qiara API: %s", ex)
             raise UpdateFailed(f"Failed to fetch sensors: {ex}")
-
-    async def async_get_sensor_data(self, sensor_id: str) -> QiaraSensorData:
-        """Get specific sensor data from Qiara API with Pydantic validation."""
-        try:
-            sensor_raw = await self._client.async_get_sensor_data(sensor_id)
-            return QiaraSensorData.model_validate(sensor_raw)
-        except ConfigEntryAuthFailed:
-            raise
-        except Exception as ex:
-            _LOGGER.error("Error fetching sensor data from Qiara API: %s", ex)
-            raise UpdateFailed(f"Failed to fetch sensor data: {ex}")
 
     async def async_arm_system(self, mode: str) -> bool:
         """Arm the Qiara system in the specified mode."""

@@ -140,6 +140,7 @@ class QiaraApiClient:
         """Return a valid session ID, authenticating first if needed."""
         if not self._session_id:
             await self._authenticate()
+        assert self._session_id is not None  # _authenticate sets it or raises
         return self._session_id
 
     async def async_get_sensors(self) -> list[dict[str, Any]]:
@@ -171,13 +172,6 @@ class QiaraApiClient:
             except Exception as ex:
                 _LOGGER.error("Failed to get sensors: %s", ex)
                 raise
-
-    async def async_get_sensor_data(self, sensor_id: str) -> dict[str, Any]:
-        """Get a single sensor by ID from the full sensor list."""
-        for sensor in await self.async_get_sensors():
-            if str(sensor.get("id")) == sensor_id:
-                return sensor
-        raise KeyError(f"Sensor {sensor_id} not found")
 
     async def async_read_endpoints(self, items: list[dict]) -> list[dict]:
         """Read endpoint values for a list of nodes."""
