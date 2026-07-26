@@ -11,7 +11,7 @@
         },
         "data_description": {
           "secret_key": "The HMAC secret key from the Qiara APK or admin settings. Keep this confidential.",
-          "base_url": "Local API address, e.g. https://192.168.0.146:64218/api/v1"
+          "base_url": "Local API address, e.g. https://192.0.2.10:64218/api/v1"
         }
       },
       "reauth_confirm": {
@@ -24,7 +24,7 @@
         },
         "data_description": {
           "secret_key": "The HMAC secret key from the Qiara APK or admin settings. Keep this confidential.",
-          "base_url": "Local API address, e.g. https://192.168.0.146:64218/api/v1"
+          "base_url": "Local API address, e.g. https://192.0.2.10:64218/api/v1"
         }
       }
     },
@@ -48,7 +48,7 @@
         },
         "data_description": {
           "secret_key": "The HMAC secret key from the Qiara APK or admin settings. Keep this confidential.",
-          "base_url": "Local API address, e.g. https://192.168.0.146:64218/api/v1"
+          "base_url": "Local API address, e.g. https://192.0.2.10:64218/api/v1"
         }
       }
     },
