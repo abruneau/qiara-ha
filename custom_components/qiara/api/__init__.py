@@ -177,6 +177,19 @@ class QiaraApi:
             _LOGGER.error("Error deactivating Qiara camera: %s", ex)
             raise UpdateFailed(f"Failed to deactivate camera: {ex}")
 
+    async def async_get_camera_snapshot(self, camera_node_id: int) -> bytes | None:
+        """Open the shutter and return a JPEG snapshot, or None if unavailable."""
+        try:
+            await self._client.async_write_endpoint(camera_node_id, "shutter", False)
+            return await self._client.async_get_snapshot()
+        except Exception as ex:
+            _LOGGER.debug("Qiara: could not fetch camera snapshot: %s", ex)
+            return None
+
+    async def async_open_stream(self, force: bool = False) -> dict[str, Any]:
+        """Open a stream session; returns SRT credentials (passphrase, pub_id)."""
+        return await self._client.async_open_stream(force)
+
     def get_camera_stream_name(self) -> str | None:
         """Return the cached HLS stream name (e.g. 'HLS_TEST')."""
         return self._camera_stream_name

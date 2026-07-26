@@ -11,6 +11,7 @@
     "openapi_client @ git+https://github.com/abruneau/qiara-python-sdk.git@a8fe8b867a667362a16c17b1ba6e7c6b889a69b3"
   ],
   "dependencies": ["stream"],
+  "after_dependencies": ["go2rtc"],
   "codeowners": ["@abruneau"],
   "iot_class": "local_polling",
   "platforms": [

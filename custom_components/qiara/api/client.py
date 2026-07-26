@@ -253,6 +253,69 @@ class QiaraApiClient:
                 _LOGGER.error("Failed to write endpoint: %s", ex)
                 raise
 
+    async def async_get_snapshot(self) -> bytes | None:
+        """Fetch a JPEG snapshot from the live stream (shutter must be open).
+
+        Returns None if the device doesn't serve a snapshot (e.g. HTTP 404 on
+        firmware without /home/stream/live.jpeg) so callers can degrade
+        gracefully instead of raising.
+        """
+        for attempt in range(2):
+            try:
+                session_id = await self._ensure_session()
+                response = await self._api_client.call_api_async(
+                    "GET",
+                    f"{self._base_url}/home/stream/live.jpeg",
+                    header_params={"x-hlcore-session-id": session_id},
+                )
+                if response.status == 400 and attempt == 0:
+                    self._session_id = None
+                    continue
+                if response.status != 200:
+                    _LOGGER.debug("Qiara: snapshot unavailable (HTTP %s)", response.status)
+                    return None
+                return response.data
+            except ConfigEntryAuthFailed:
+                if attempt == 0:
+                    self._session_id = None
+                    continue
+                raise
+            except Exception as ex:
+                _LOGGER.debug("Qiara: snapshot fetch failed: %s", ex)
+                return None
+        return None
+
+    async def async_open_stream(self, force: bool = False) -> dict[str, Any]:
+        """Open a video stream session via /home/open_stream.
+
+        Returns the parsed response, which contains the SRT/AES ``passphrase``
+        and a ``pub_id`` used to build the stream URL.
+        """
+        for attempt in range(2):
+            try:
+                session_id = await self._ensure_session()
+                response = await self._api_client.call_api_async(
+                    "POST",
+                    f"{self._base_url}/home/open_stream",
+                    header_params={
+                        "x-hlcore-session-id": session_id,
+                        "Content-Type": "application/json",
+                    },
+                    body={"force": force},
+                )
+                if response.status == 400 and attempt == 0:
+                    self._session_id = None
+                    continue
+                if response.status >= 400:
+                    raise ApiException(status=response.status, reason=response.reason)
+                return json.loads(response.data)
+            except ConfigEntryAuthFailed:
+                if attempt == 0:
+                    self._session_id = None
+                    continue
+                raise
+        return {}
+
     async def async_arm_system(self, node_id: int, mode: str) -> bool:
         """Arm the security system via hl_alarm_enable on the alarm node."""
         await self.async_write_endpoint(node_id, "hl_alarm_enable", mode)
