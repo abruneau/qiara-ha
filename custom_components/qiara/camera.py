@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
+from urllib.parse import urlsplit
 
 from aiohttp import web
 from homeassistant.components.camera import Camera, CameraEntityFeature
@@ -29,11 +31,21 @@ _CAMERA_PROXY_KEY = "_camera_stream_proxy"
 # Snapshot cache TTL — avoids re-opening the shutter on every thumbnail poll.
 _SNAPSHOT_CACHE_SECONDS = 10
 
-# Options keys for the (opt-in, experimental) SRT low-latency live path.
+# SRT low-latency live path. The hub runs an SRT listener on UDP 9000 reachable
+# at the hub's own IP; streamid = stream name and passphrase = /home/open_stream
+# both come from the local API. HA's own PyAV can't open SRT, so we register the
+# stream with HA's bundled go2rtc (which restreams it via ffmpeg) and hand HA the
+# resulting local RTSP URL — smooth, since it's local and SRT keeps up with the
+# live edge (unlike the remote HLS path, which stutters as segments expire).
 OPT_USE_SRT = "use_srt"
-OPT_SRT_HOST = "srt_host"
 OPT_SRT_PORT = "srt_port"
 OPT_SRT_LATENCY = "srt_latency"
+DEFAULT_SRT_PORT = 9000
+
+# HA's managed go2rtc: its config lives under hass.data["go2rtc"] (a UnixConnector
+# session + placeholder URL) and it serves RTSP on this fixed local port.
+GO2RTC_DATA_KEY = "go2rtc"
+GO2RTC_RTSP_PORT = 18554
 
 
 async def async_setup_entry(
@@ -73,13 +85,24 @@ async def async_setup_entry(
 
 
 def build_srt_url(
-    host: str, port: int | str, streamid: str, passphrase: str, latency: int | None = None
+    host: str,
+    port: int | str,
+    streamid: str,
+    passphrase: str,
+    latency: int = 500000,
 ) -> str:
-    """Build the SRT stream URL the Qiara app uses for low-latency live video."""
-    params = [f"streamid={streamid}", f"passphrase={passphrase}"]
-    if latency:
-        params.append(f"latency={latency}")
-    return f"srt://{host}:{port}?{'&'.join(params)}"
+    """Build the caller-mode SRT URL for the hub's low-latency live stream.
+
+    The hub runs an SRT listener (srt-daemon) on UDP 9000; the client connects
+    as caller with the stream name as streamid and the passphrase returned by
+    /home/open_stream. latency is in microseconds (500ms; a large buffer delays
+    the first frame past PyAV's probe window and HA fails to open the stream).
+    """
+    params = (
+        f"streamid={streamid}&passphrase={passphrase}"
+        f"&mode=caller&transtype=live&latency={latency}"
+    )
+    return f"srt://{host}:{port}?{params}"
 
 
 class QiaraCameraStreamProxy(HomeAssistantView):
@@ -219,14 +242,16 @@ class QiaraCamera(CoordinatorEntity, Camera):
         self._last_image: bytes | None = None
         self._last_image_ts: float = 0.0
 
-        # Experimental opt-in SRT low-latency path (see build_srt_url). The SRT
-        # host/port live in the camera's provisioning data, which the local
-        # polling API does not expose, so they must be supplied via options.
+        # SRT low-latency live path (see build_srt_url). Enabled by default and
+        # falls back to HLS if it can't be built; options can disable it or
+        # tune the port/latency.
         opts = entry.options
-        self._use_srt: bool = bool(opts.get(OPT_USE_SRT, False))
-        self._srt_host: str | None = opts.get(OPT_SRT_HOST)
-        self._srt_port = opts.get(OPT_SRT_PORT)
-        self._srt_latency = opts.get(OPT_SRT_LATENCY)
+        self._use_srt: bool = bool(opts.get(OPT_USE_SRT, True))
+        self._srt_port = opts.get(OPT_SRT_PORT, DEFAULT_SRT_PORT)
+        # 500ms: the hub's SRT peerlatency floor. A large latency (e.g. 3s)
+        # delays the first frame past PyAV's probe window and HA fails to open
+        # the stream ("Invalid data found"); 500ms opens reliably on the LAN.
+        self._srt_latency = int(opts.get(OPT_SRT_LATENCY, 500000))
 
     @property
     def _sensor(self) -> QiaraSensorData | None:
@@ -278,43 +303,58 @@ class QiaraCamera(CoordinatorEntity, Camera):
         return f"{ha_url}/api/qiara/camera/{camera_node_id}/stream/{stream_name}.m3u8"
 
     async def _async_srt_stream_source(self) -> str | None:
-        """Return an SRT stream URL for low-latency live video (experimental).
+        """Register the hub's SRT stream with go2rtc and return its RTSP URL.
 
-        Falls back (returns None) when the pieces SRT needs aren't available:
-        the stream id (from the camera node) and the SRT host/port. The latter
-        come from camera provisioning and are not exposed by the local polling
-        API, so they must be configured via the integration options.
+        HA's PyAV can't open SRT directly, so go2rtc restreams it (via ffmpeg)
+        and HA reads the resulting local RTSP. Everything comes from the local
+        API: SRT listener on the hub's own host:9000, streamid = stream name,
+        passphrase = /home/open_stream. Returns None (fall back to HLS) if any
+        piece — go2rtc, streamid, or credentials — is unavailable.
         """
+        go2rtc = self.hass.data.get(GO2RTC_DATA_KEY)
+        session = getattr(go2rtc, "session", None)
+        url = getattr(go2rtc, "url", None)
+        if not (session and url):
+            _LOGGER.debug("Qiara SRT: go2rtc unavailable — falling back to HLS")
+            return None
+
         api = self.coordinator.api
         camera_node_id = api.get_camera_node_id()
         if camera_node_id is None:
             return None
-
         streamid = (
             api.get_camera_stream_name()
             or await api.async_fetch_camera_stream_name(camera_node_id)
         )
-        if not (streamid and self._srt_host and self._srt_port):
-            _LOGGER.debug(
-                "Qiara SRT: missing streamid/host/port — falling back to HLS "
-                "(set %s/%s/%s in the integration options to enable SRT)",
-                OPT_USE_SRT, OPT_SRT_HOST, OPT_SRT_PORT,
-            )
+        host = urlsplit(api._base_url).hostname
+        if not (streamid and host):
+            _LOGGER.debug("Qiara SRT: missing streamid/host — falling back to HLS")
             return None
 
-        creds = await api.async_open_stream(force=False)
+        creds = await api.async_open_stream(force=True)
         passphrase = creds.get("passphrase")
         if not passphrase:
             _LOGGER.debug("Qiara SRT: no passphrase from open_stream — falling back to HLS")
             return None
 
-        _LOGGER.debug(
-            "Qiara SRT stream: srt://%s:%s?streamid=%s&passphrase=***",
-            self._srt_host, self._srt_port, streamid,
-        )
-        return build_srt_url(
-            self._srt_host, self._srt_port, streamid, passphrase, self._srt_latency
-        )
+        srt_url = build_srt_url(host, self._srt_port, streamid, passphrase, self._srt_latency)
+        # go2rtc pulls SRT via ffmpeg; copy the HEVC video (no transcode) and
+        # remux audio to AAC (raw AAC-in-RTSP copy is rejected by the muxer).
+        source = f"ffmpeg:{srt_url}#video=copy#audio=aac"
+        name = f"qiara_camera_{camera_node_id}"
+        try:
+            from go2rtc_client import Go2RtcRestClient
+
+            client = Go2RtcRestClient(session, url)
+            await client.streams.add(name, source)
+        except Exception as err:  # noqa: BLE001 - degrade to HLS on any failure
+            _LOGGER.warning(
+                "Qiara SRT: could not register go2rtc stream, falling back to HLS: %s", err
+            )
+            return None
+
+        _LOGGER.debug("Qiara SRT via go2rtc: rtsp://127.0.0.1:%s/%s", GO2RTC_RTSP_PORT, name)
+        return f"rtsp://127.0.0.1:{GO2RTC_RTSP_PORT}/{name}"
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
