@@ -353,22 +353,45 @@ This is the silver `action-exceptions` rule. The panel currently re-wraps whatev
 
 Measured against the current [tier rules](https://developers.home-assistant.io/docs/core/integration-quality-scale/).
 
-### Urgent: `config_entry` is not passed to the coordinator
-`coordinator.py:30-35`
+### ~~`config_entry` is not passed to the coordinator~~ — FIXED
+`coordinator.py:22-41`
 
-`DataUpdateCoordinator` is constructed without `config_entry`, so it falls back to the
-ContextVar lookup. **That fallback is removed in Home Assistant 2026.8** — next month. This is
-the single highest-urgency standards item in the review.
+`DataUpdateCoordinator` was constructed without `config_entry`, so it fell back to
+`config_entries.current_entry.get()`.
+
+An earlier draft of this review claimed the fallback is removed in HA 2026.8. **That was wrong**
+— core explicitly exempts custom integrations:
 
 ```python
-super().__init__(
-    hass,
-    _LOGGER,
-    name="Qiara",
-    update_interval=timedelta(seconds=60),
-    config_entry=entry,
+# It is not planned to enforce this for custom integrations.
+frame.report_usage(
+    "relies on ContextVar, but should pass the config entry explicitly.",
+    core_behavior=frame.ReportBehavior.ERROR,
+    core_integration_behavior=frame.ReportBehavior.ERROR,
+    custom_integration_behavior=frame.ReportBehavior.IGNORE,
 )
 ```
+
+The real defect was a present-day one. `current_entry` is only populated inside HA's config
+entry setup context, and `async_reload_entry` (H4) calls `async_setup_entry` *directly*, outside
+it. On every options-triggered reload the coordinator therefore got `config_entry = None`, which:
+
+- makes `async_config_entry_first_refresh()` raise
+  `ConfigEntryError("...only supported for coordinators with a config entry")`;
+- skips `self.config_entry.async_on_unload(self.async_shutdown)`, leaking the refresh timer
+  across reloads.
+
+Fixed by passing the entry explicitly, which removes the dependency on the setup context
+altogether. The constructor was also given real annotations (`hass: HomeAssistant`,
+`entry: ConfigEntry` — it was previously annotated `dict[str, Any]`) and the class is now
+parameterised as `DataUpdateCoordinator[dict[str, Any]]`. The redundant `self.entry` was dropped
+in favour of the base class's `self.config_entry`.
+
+Guarded by `tests/custom_components/qiara/test_coordinator.py`.
+
+**Note that H4 still needs its own one-line fix** for reloads to work: passing `config_entry`
+stops it being `None`, but `_async_config_entry_first_refresh` also requires the entry to be in
+state `SETUP_IN_PROGRESS`, which the manual reload path does not produce.
 
 ### Bronze
 
@@ -414,9 +437,8 @@ the credentials options flow in `config_flow.py:129-177`).
 
 ### Platinum
 
-`strict-typing`: `coordinator.py:24` annotates `entry: dict[str, Any]` but is passed a
-`ConfigEntry`; `hass` is unannotated; `DataUpdateCoordinator` is not parameterised
-(`DataUpdateCoordinator[dict[str, Any]]`); `_ensure_session() -> str` can return `None`.
+`strict-typing`: `_ensure_session() -> str` can return `None`. (The coordinator's annotations and
+generic parameter were fixed alongside the `config_entry` change above.)
 
 ---
 
@@ -481,8 +503,9 @@ diagnostics.
 1. **S1, S2** — the unauthenticated device-API relay and the disabled TLS verification.
 2. **H2, H1** — stop reporting "disarmed" for unknown states, and unstick the optimistic state.
    These are the two findings with real-world safety consequences.
-3. **Coordinator `config_entry`** — a hard break in HA 2026.8.
+3. ~~**Coordinator `config_entry`**~~ — done.
 4. **H3, H4, H8** — the silent-empty-poll bug, the broken reload, the missing dependencies.
+   H4 is the other half of the coordinator fix.
 5. **M1–M9** — type-mapping fixes, ideally with a regression test each.
 6. **H5, H6** — multi-entry and multi-camera correctness, if either is in scope.
 7. `runtime-data`, `has-entity-name`, `parallel-updates`, and the move to

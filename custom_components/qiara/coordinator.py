@@ -5,6 +5,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
@@ -14,24 +16,28 @@ from .models import QiaraSensorData
 _LOGGER = logging.getLogger(__name__)
 
 
-class QiaraDataUpdateCoordinator(DataUpdateCoordinator):
+class QiaraDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator to manage Qiara data updates."""
 
     def __init__(
         self,
-        hass,
+        hass: HomeAssistant,
         api: QiaraApi,
-        entry: dict[str, Any],
+        entry: ConfigEntry,
     ) -> None:
         """Initialize the coordinator."""
         self.api = api
-        self.entry = entry
 
+        # Pass the entry explicitly rather than letting the base class fall back
+        # to the `current_entry` ContextVar: that var is only populated inside
+        # HA's config entry setup context, so any setup path outside it would
+        # leave `config_entry` as None and break async_config_entry_first_refresh.
         super().__init__(
             hass,
             _LOGGER,
             name="Qiara",
             update_interval=timedelta(seconds=60),
+            config_entry=entry,
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
