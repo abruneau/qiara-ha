@@ -8,7 +8,8 @@ from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntityFeature,
     AlarmControlPanelState,
 )
-from homeassistant.exceptions import HomeAssistantError, UpdateFailed
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.qiara.alarm_control_panel import QiaraAlarmControlPanel
 from custom_components.qiara.const import SYSTEM_MODE_DAY, SYSTEM_MODE_NIGHT
@@ -38,8 +39,15 @@ def mock_entry():
 
 @pytest.fixture
 def alarm_panel(mock_coordinator, mock_entry):
-    """Create a QiaraAlarmControlPanel instance."""
-    return QiaraAlarmControlPanel(mock_coordinator, mock_entry)
+    """Create a QiaraAlarmControlPanel instance.
+
+    async_write_ha_state() is stubbed because the panel isn't added to a real
+    HA instance here (no hass/entity_id/platform), so the real implementation
+    would raise. Tests that care about the call count patch it themselves.
+    """
+    panel = QiaraAlarmControlPanel(mock_coordinator, mock_entry)
+    panel.async_write_ha_state = MagicMock()
+    return panel
 
 
 def test_alarm_panel_init(alarm_panel, mock_entry):
@@ -198,10 +206,10 @@ async def test_alarm_arm_home_node_not_yet_discovered(alarm_panel, mock_coordina
 
 def test_alarm_panel_availability(alarm_panel, mock_coordinator):
     """Test alarm panel availability follows coordinator availability."""
-    mock_coordinator.available = True
+    mock_coordinator.last_update_success = True
     assert alarm_panel.available is True
 
-    mock_coordinator.available = False
+    mock_coordinator.last_update_success = False
     assert alarm_panel.available is False
 
 
