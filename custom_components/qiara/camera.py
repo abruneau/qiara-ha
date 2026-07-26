@@ -31,6 +31,10 @@ _CAMERA_PROXY_KEY = "_camera_stream_proxy"
 # Snapshot cache TTL — avoids re-opening the shutter on every thumbnail poll.
 _SNAPSHOT_CACHE_SECONDS = 10
 
+# Grace after opening the shutter before the camera produces video; without it
+# HA's first SRT connect races the camera startup and errors ("Invalid data").
+_SHUTTER_WARMUP_SECONDS = 3
+
 # SRT low-latency live path. The hub runs an SRT listener on UDP 9000 reachable
 # at the hub's own IP; streamid = stream name and passphrase = /home/open_stream
 # both come from the local API. HA's own PyAV can't open SRT, so we register the
@@ -241,6 +245,7 @@ class QiaraCamera(CoordinatorEntity, Camera):
         self._attr_unique_id = f"qiara_camera_{sensor_id}"
         self._last_image: bytes | None = None
         self._last_image_ts: float = 0.0
+        self._shutter_task: asyncio.Task | None = None
 
         # SRT low-latency live path (see build_srt_url). Enabled by default and
         # falls back to HLS if it can't be built; options can disable it or
@@ -337,6 +342,15 @@ class QiaraCamera(CoordinatorEntity, Camera):
             _LOGGER.debug("Qiara SRT: no passphrase from open_stream — falling back to HLS")
             return None
 
+        # SRT only carries video while the camera is capturing, so open the
+        # shutter now; the watcher below closes it again when viewing stops.
+        # The camera needs a moment after the shutter opens before it produces
+        # video, so wait briefly — otherwise HA's first connect races the
+        # startup and fails with "Invalid data found" before retrying.
+        with contextlib.suppress(Exception):
+            await api.async_activate_camera(camera_node_id)
+        await asyncio.sleep(_SHUTTER_WARMUP_SECONDS)
+
         srt_url = build_srt_url(host, self._srt_port, streamid, passphrase, self._srt_latency)
         # go2rtc pulls SRT via ffmpeg; copy the HEVC video (no transcode) and
         # remux audio to AAC (raw AAC-in-RTSP copy is rejected by the muxer).
@@ -353,8 +367,57 @@ class QiaraCamera(CoordinatorEntity, Camera):
             )
             return None
 
+        # Nothing in the SRT path closes the physical shutter once HA stops
+        # viewing (unlike the HLS proxy's idle timer), so watch go2rtc for this
+        # stream's consumers and close the shutter when they drop to zero.
+        self._start_shutter_watcher(session, url, name, camera_node_id)
+
         _LOGGER.debug("Qiara SRT via go2rtc: rtsp://127.0.0.1:%s/%s", GO2RTC_RTSP_PORT, name)
         return f"rtsp://127.0.0.1:{GO2RTC_RTSP_PORT}/{name}"
+
+    def _start_shutter_watcher(self, session, url: str, stream_name: str, camera_node_id: int) -> None:
+        """Ensure a single background task is watching this stream's consumers."""
+        if self._shutter_task and not self._shutter_task.done():
+            return
+        self._shutter_task = self.hass.async_create_background_task(
+            self._watch_shutter(session, url, stream_name, camera_node_id),
+            name=f"qiara_shutter_watch_{stream_name}",
+        )
+
+    async def _watch_shutter(self, session, url: str, stream_name: str, camera_node_id: int) -> None:
+        """Close the camera shutter once go2rtc has no consumers for the stream.
+
+        Polls go2rtc's raw /api/streams (the typed client drops the consumer
+        list). Waits for a consumer to appear first (stream startup), then
+        closes the shutter after it has been idle for a short grace period — or
+        gives up and closes it if the stream never started.
+        """
+        poll, grace, startup = 10, 2, 6
+        idle = polls = 0
+        seen = False
+        streams_url = url.rstrip("/") + "/api/streams"
+        try:
+            while True:
+                await asyncio.sleep(poll)
+                polls += 1
+                try:
+                    async with session.get(streams_url) as resp:
+                        info = (await resp.json()).get(stream_name) or {}
+                    consumers = len(info.get("consumers") or [])
+                except Exception:  # noqa: BLE001 - treat query failure as idle
+                    consumers = 0
+                if consumers > 0:
+                    seen, idle = True, 0
+                elif seen:
+                    idle += 1
+                    if idle >= grace:
+                        break
+                elif polls >= startup:
+                    break  # stream never started; close the shutter anyway
+        finally:
+            with contextlib.suppress(Exception):
+                await self.coordinator.api.async_deactivate_camera(camera_node_id)
+            _LOGGER.debug("Qiara: closed camera %s shutter (stream ended)", camera_node_id)
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
@@ -391,3 +454,9 @@ class QiaraCamera(CoordinatorEntity, Camera):
         camera_node_id = api.get_camera_node_id()
         if camera_node_id is not None:
             await api.async_deactivate_camera(camera_node_id)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel the shutter watcher and close the shutter on unload."""
+        if self._shutter_task and not self._shutter_task.done():
+            self._shutter_task.cancel()
+        await super().async_will_remove_from_hass()
