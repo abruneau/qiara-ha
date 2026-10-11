@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DEFAULT_BASE_URL, DOMAIN
@@ -60,6 +60,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Fetch initial data — raises ConfigEntryNotReady on failure so HA retries
     await coordinator.async_config_entry_first_refresh()
+
+    # Register the hub device up front so sensor devices can link to it by
+    # device id (via_device_id) — the alarm panel platform that also describes
+    # it is set up after the sensor platforms.
+    hub = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name="Qiara Security System",
+        manufacturer="Qiara",
+    )
+    coordinator.hub_device_id = hub.id
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

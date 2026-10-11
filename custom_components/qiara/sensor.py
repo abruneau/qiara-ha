@@ -81,8 +81,9 @@ class QiaraBatterySensor(CoordinatorEntity, SensorEntity):
             "name": sensor_data.name,
             "manufacturer": "Qiara",
             "model": sensor_data.type.capitalize(),
-            "via_device": (DOMAIN, entry.entry_id),
         }
+        if coordinator.hub_device_id:
+            self._attr_device_info["via_device_id"] = coordinator.hub_device_id
 
     @property
     def native_value(self) -> int | None:
@@ -96,7 +97,7 @@ class QiaraBatterySensor(CoordinatorEntity, SensorEntity):
     def available(self) -> bool:
         """Return if sensor is available."""
         sensor_data: QiaraSensorData = self.coordinator.data.get(self._sensor_id)
-        return super().available and sensor_data and sensor_data.available
+        return bool(super().available and sensor_data and sensor_data.available)
 
 
 class QiaraTemperatureSensor(CoordinatorEntity, SensorEntity):
@@ -124,8 +125,9 @@ class QiaraTemperatureSensor(CoordinatorEntity, SensorEntity):
             "name": sensor_data.name,
             "manufacturer": "Qiara",
             "model": sensor_data.type.capitalize(),
-            "via_device": (DOMAIN, entry.entry_id),
         }
+        if coordinator.hub_device_id:
+            self._attr_device_info["via_device_id"] = coordinator.hub_device_id
 
     @property
     def native_value(self) -> float | None:
@@ -139,4 +141,4 @@ class QiaraTemperatureSensor(CoordinatorEntity, SensorEntity):
     def available(self) -> bool:
         """Return if sensor is available."""
         sensor_data: QiaraSensorData = self.coordinator.data.get(self._sensor_id)
-        return super().available and sensor_data and sensor_data.available
+        return bool(super().available and sensor_data and sensor_data.available)

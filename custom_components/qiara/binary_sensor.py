@@ -67,8 +67,9 @@ class QiaraBinarySensor(CoordinatorEntity, BinarySensorEntity):
             "name": sensor_data.name,
             "manufacturer": "Qiara",
             "model": sensor_data.type.capitalize(),
-            "via_device": (DOMAIN, entry.entry_id),
         }
+        if coordinator.hub_device_id:
+            self._attr_device_info["via_device_id"] = coordinator.hub_device_id
 
     @property
     def is_on(self) -> bool | None:
@@ -101,4 +102,4 @@ class QiaraBinarySensor(CoordinatorEntity, BinarySensorEntity):
     def available(self) -> bool:
         """Return if sensor is available."""
         sensor_data: QiaraSensorData = self.coordinator.data.get(self._sensor_id)
-        return super().available and sensor_data and sensor_data.available
+        return bool(super().available and sensor_data and sensor_data.available)

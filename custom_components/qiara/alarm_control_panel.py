@@ -81,9 +81,12 @@ class QiaraAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
             manufacturer="Qiara",
         )
         self._optimistic_state: AlarmControlPanelState | None = None
+        # Set when a command couldn't be confirmed: the next coordinator sync
+        # then replaces the optimistic state with what the device reports.
+        self._clear_optimistic_on_sync = False
 
     @property
-    def alarm_state(self) -> AlarmControlPanelState:
+    def alarm_state(self) -> AlarmControlPanelState | None:
         """Return the current alarm state.
 
         A freshly-set optimistic value (pending or just-confirmed-by-command)
@@ -92,13 +95,26 @@ class QiaraAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
         `_async_confirm_state` verifies the device agrees, so subsequent
         reads go back to tracking the coordinator (e.g. externally-triggered
         alarms).
+
+        An unreadable or unrecognised device state is reported as unknown
+        (None) — never as disarmed, which would hide an armed system.
         """
         if self._optimistic_state is not None:
             return self._optimistic_state
         raw = self.coordinator.data.get("alarm_state") if self.coordinator.data else None
-        if raw is not None:
-            return _ALARM_STATE_MAP.get(raw, AlarmControlPanelState.DISARMED)
-        return AlarmControlPanelState.DISARMED
+        if raw is None:
+            return None
+        state = _ALARM_STATE_MAP.get(raw)
+        if state is None:
+            _LOGGER.warning("Qiara: unrecognised alarm state %r", raw)
+        return state
+
+    def _handle_coordinator_update(self) -> None:
+        """Drop an unconfirmed optimistic state once fresh device data arrives."""
+        if self._clear_optimistic_on_sync:
+            self._clear_optimistic_on_sync = False
+            self._optimistic_state = None
+        super()._handle_coordinator_update()
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
         """Arm in home (day) mode."""
@@ -140,6 +156,7 @@ class QiaraAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
     ) -> None:
         """Run an arm/disarm command, showing pending/final state right away and confirming it against the device."""
         _LOGGER.debug("Qiara: %s called", error_context)
+        self._clear_optimistic_on_sync = False
         self._optimistic_state = pending_state
         self.async_write_ha_state()
 
@@ -182,3 +199,4 @@ class QiaraAlarmControlPanel(CoordinatorEntity, AlarmControlPanelEntity):
             "Qiara: alarm state not confirmed within %ss, keeping optimistic state until next sync",
             _CONFIRM_POLL_INTERVAL * (_CONFIRM_POLL_ATTEMPTS - 1),
         )
+        self._clear_optimistic_on_sync = True

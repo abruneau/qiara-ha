@@ -57,8 +57,8 @@ def test_alarm_panel_init(alarm_panel, mock_entry):
 
 
 def test_alarm_panel_initial_state(alarm_panel):
-    """Test alarm control panel starts in DISARMED state."""
-    assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
+    """Without device data the state is unknown (None), never assumed disarmed."""
+    assert alarm_panel.alarm_state is None
 
 
 def test_alarm_panel_supported_features(alarm_panel):
@@ -139,9 +139,9 @@ async def test_alarm_arm_home_error(alarm_panel, mock_coordinator):
     with pytest.raises(HomeAssistantError):
         await alarm_panel.async_alarm_arm_home()
 
-    # State should fall back to coordinator truth (no data yet -> DISARMED), not stay stuck ARMING
+    # State should fall back to coordinator truth (no data yet -> unknown), not stay stuck ARMING
     assert alarm_panel._optimistic_state is None
-    assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
+    assert alarm_panel.alarm_state is None
 
 
 @pytest.mark.asyncio
@@ -153,7 +153,7 @@ async def test_alarm_arm_night_error(alarm_panel, mock_coordinator):
         await alarm_panel.async_alarm_arm_night()
 
     assert alarm_panel._optimistic_state is None
-    assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
+    assert alarm_panel.alarm_state is None
 
 
 @pytest.mark.asyncio
@@ -169,7 +169,7 @@ async def test_alarm_disarm_error(alarm_panel, mock_coordinator):
         with pytest.raises(HomeAssistantError):
             await alarm_panel.async_alarm_disarm()
 
-    # Optimistic override is cleared; coordinator has no data yet so it falls back to DISARMED
+    # Optimistic override is cleared; coordinator has no data yet so the state is unknown
     # (the coordinator's periodic poll is the source of truth for what actually happened on the device).
     assert alarm_panel._optimistic_state is None
 
@@ -187,7 +187,7 @@ async def test_alarm_arm_home_update_failed_not_double_wrapped(alarm_panel, mock
     error_msg = str(exc_info.value)
     assert "Failed to arm system: connection timeout" in error_msg
     assert error_msg.count("Failed to arm system") == 1, "Message should not be double-wrapped"
-    assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
+    assert alarm_panel.alarm_state is None
 
 
 @pytest.mark.asyncio
@@ -201,7 +201,7 @@ async def test_alarm_arm_home_node_not_yet_discovered(alarm_panel, mock_coordina
         await alarm_panel.async_alarm_arm_home()
 
     assert "Alarm node not yet discovered" in str(exc_info.value)
-    assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
+    assert alarm_panel.alarm_state is None
 
 
 def test_alarm_panel_availability(alarm_panel, mock_coordinator):
@@ -234,7 +234,7 @@ def test_alarm_state_from_coordinator_data_off(alarm_panel, mock_coordinator):
 def test_alarm_state_fallback_to_optimistic(alarm_panel, mock_coordinator):
     """Test alarm_state falls back to _optimistic_state when coordinator data has no alarm_state key."""
     mock_coordinator.data = {}
-    assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
+    assert alarm_panel.alarm_state is None
     alarm_panel._optimistic_state = AlarmControlPanelState.ARMED_HOME
     assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
 
@@ -314,3 +314,42 @@ async def test_confirm_state_tolerates_poll_errors(alarm_panel, mock_coordinator
 
     assert mock_coordinator.data["alarm_state"] == "off"
     assert alarm_panel._optimistic_state is None
+
+
+def test_alarm_state_unknown_when_read_failed(alarm_panel, mock_coordinator):
+    """A failed alarm read (None) must show as unknown, not disarmed."""
+    mock_coordinator.data = {"alarm_state": None}
+    assert alarm_panel.alarm_state is None
+
+
+def test_alarm_state_unknown_for_unrecognised_value(alarm_panel, mock_coordinator):
+    """An unexpected device value must show as unknown, not disarmed."""
+    mock_coordinator.data = {"alarm_state": "partially_armed"}
+    assert alarm_panel.alarm_state is None
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_optimistic_state_cleared_by_next_sync(alarm_panel, mock_coordinator):
+    """After a confirmation timeout, the next coordinator sync restores device truth."""
+    alarm_panel._optimistic_state = AlarmControlPanelState.ARMED_HOME
+    mock_coordinator.data = {"alarm_state": "off"}
+    mock_coordinator.api.async_get_alarm_state = AsyncMock(return_value="off")
+
+    with patch("custom_components.qiara.alarm_control_panel.asyncio.sleep", AsyncMock()):
+        await alarm_panel._async_confirm_state(("day", "day_armed"))
+    assert alarm_panel.alarm_state == AlarmControlPanelState.ARMED_HOME
+
+    alarm_panel._handle_coordinator_update()
+
+    assert alarm_panel._optimistic_state is None
+    assert alarm_panel.alarm_state == AlarmControlPanelState.DISARMED
+
+
+def test_coordinator_sync_keeps_pending_optimistic_state(alarm_panel, mock_coordinator):
+    """A sync landing while a command is still being confirmed must not drop its state."""
+    mock_coordinator.data = {"alarm_state": "off"}
+    alarm_panel._optimistic_state = AlarmControlPanelState.ARMING
+
+    alarm_panel._handle_coordinator_update()
+
+    assert alarm_panel.alarm_state == AlarmControlPanelState.ARMING
